@@ -72,19 +72,23 @@ if [ "$SKIP_SAFETY" = true ]; then
     fi
 else
     # Use the safety checker to find a safe interface
-    SAFE_INTERFACE=$(python3 "$SCRIPT_DIR/check_wifi_safety.py" --suggest 2>/dev/null || echo "")
+    echo "   Scanning for safe interfaces..."
+    SAFE_INTERFACE=$(python3 "$SCRIPT_DIR/check_wifi_safety.py" --suggest 2>&1 | grep -E '^wlan[0-9]+$' | head -1 || echo "")
 
     if [ -n "$SAFE_INTERFACE" ]; then
         echo "✓ Found safe WiFi interface: $SAFE_INTERFACE"
         WIFI_INTERFACE="$SAFE_INTERFACE"
+        echo "   (Interface is not connected - perfect for monitor mode!)"
     else
-        echo "⚠️  No safe WiFi interface found automatically"
+        echo "⚠️  Could not auto-detect a safe interface"
         echo ""
         echo "Available interfaces:"
         python3 "$SCRIPT_DIR/check_wifi_safety.py" --list 2>/dev/null || true
         echo ""
+        echo "💡 TIP: An interface that is 'Not connected' is SAFE and IDEAL for monitor mode!"
+        echo ""
         echo "Options:"
-        echo "  1. Enter interface name manually (if you know it's safe)"
+        echo "  1. Enter interface name manually (choose one marked SAFE above)"
         echo "  2. Run with --force flag to bypass safety checks"
         echo "  3. Cancel and connect via Ethernet or add USB WiFi adapter"
         echo ""
@@ -93,16 +97,21 @@ else
             echo "❌ WiFi interface required"
             exit 1
         fi
-        echo "⚠️  Using interface: $WIFI_INTERFACE (will verify safety next)"
+        echo "✓ Will use interface: $WIFI_INTERFACE"
     fi
 fi
 
 # Check if the selected interface is safe (unless skipped)
 if [ "$SKIP_SAFETY" = false ]; then
     echo ""
-    echo "🔒 Checking interface safety..."
-    python3 "$SCRIPT_DIR/check_wifi_safety.py" "$WIFI_INTERFACE" 2>&1
+    echo "🔒 Verifying interface $WIFI_INTERFACE safety..."
+
+    # Capture output for parsing
+    SAFETY_OUTPUT=$(python3 "$SCRIPT_DIR/check_wifi_safety.py" "$WIFI_INTERFACE" 2>&1)
     SAFETY_CODE=$?
+
+    # Show relevant output
+    echo "$SAFETY_OUTPUT" | grep -E "(✓|⚠️|⛔|Safe|WARNING|DANGER)" || echo "   Checking..."
 
     if [ $SAFETY_CODE -eq 1 ]; then
         echo ""
@@ -134,10 +143,9 @@ if [ "$SKIP_SAFETY" = false ]; then
         fi
     fi
 
-    echo "✓ Interface safety check passed"
+    echo "✓ Interface $WIFI_INTERFACE passed safety check"
 else
     echo "⚠️  Safety checks DISABLED - proceeding without validation"
-fi
 fi
 
 # Use hostname as default monitor name
