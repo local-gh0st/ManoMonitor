@@ -144,6 +144,76 @@ async def _setup_local_monitor():
             logger.info(f"Registered local monitor '{settings.monitor_name}' at ({lat}, {lon}) [{method}]")
 
 
+async def _check_interface_safety() -> bool:
+    """Check if WiFi interface is safe to use for monitor mode."""
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    # Run safety check script
+    script_path = Path(__file__).parent.parent.parent / "scripts" / "check_wifi_safety.py"
+
+    try:
+        result = subprocess.run(
+            [sys.executable, str(script_path), settings.wifi_interface],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+
+        # Print the safety check output
+        if result.stdout:
+            logger.info("\n" + result.stdout)
+
+        # Check return code
+        if result.returncode == 1:
+            # Dangerous - abort
+            logger.error(f"❌ Interface {settings.wifi_interface} is NOT SAFE to use!")
+            logger.error("This would disconnect your network connection.")
+            logger.error("")
+            logger.error("Solutions:")
+            logger.error("  1. Use a USB WiFi adapter for monitoring")
+            logger.error("  2. Connect via Ethernet and use WiFi for monitoring")
+            logger.error("  3. Set MANOMONITOR_CAPTURE_ENABLED=false in .env")
+            logger.error("  4. Change MANOMONITOR_WIFI_INTERFACE in .env to a safe interface")
+            logger.error("")
+            return False
+        elif result.returncode == 2:
+            # Warning - prompt user
+            logger.warning(f"⚠️  Interface {settings.wifi_interface} is currently connected")
+
+            # If running interactively, prompt for confirmation
+            if sys.stdin.isatty():
+                logger.warning("")
+                logger.warning("Switching to monitor mode will disconnect this interface.")
+                logger.warning("Do you want to continue? (yes/no): ")
+
+                try:
+                    response = input().strip().lower()
+                    if response not in ['yes', 'y']:
+                        logger.info("Aborted by user")
+                        return False
+                except (KeyboardInterrupt, EOFError):
+                    logger.info("\nAborted by user")
+                    return False
+            else:
+                # Running as service - use more conservative approach
+                logger.warning("Running non-interactively - proceeding with caution")
+                logger.warning("Set MANOMONITOR_CAPTURE_ENABLED=false to disable")
+
+        # Safe or user confirmed - proceed
+        return True
+
+    except FileNotFoundError:
+        logger.warning("Safety check script not found, proceeding without check")
+        logger.warning("This may disconnect your network!")
+        return True
+    except Exception as e:
+        logger.warning(f"Could not run safety check: {e}")
+        logger.warning("Proceeding with caution...")
+        return True
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager."""
@@ -164,7 +234,14 @@ async def lifespan(app: FastAPI):
             logger.warning(f"Failed to setup local monitor: {e}")
             logger.info("You can manually configure location in .env or call POST /api/monitors/setup-local")
 
-    # Start WiFi capture if enabled
+    # Check interface safety before starting capture
+    if settings.capture_enabled:
+        if not await _check_interface_safety():
+            logger.error("WiFi capture disabled due to safety concerns")
+            logger.error("Please fix the interface configuration and restart")
+            settings.capture_enabled = False
+
+    # Start WiFi capture if enabled and safe
     capture = get_capture()
     if settings.capture_enabled:
         try:
