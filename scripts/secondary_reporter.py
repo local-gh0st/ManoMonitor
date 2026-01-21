@@ -1,25 +1,24 @@
 #!/usr/bin/env python3
 """
-Secondary Monitor Reporter for ManoMonitor
+Enhanced Secondary Monitor Reporter with Auto-Discovery
 
-This script runs on secondary monitors and reports signal readings
-to the primary monitor for triangulation.
+This script automatically discovers the primary monitor on the network
+and configures itself with minimal user input.
 
 Usage:
-    python3 secondary_reporter.py --primary-url http://192.168.1.100:8080 --api-key YOUR_API_KEY
+    python3 scripts/secondary_reporter.py  # Auto-discovers everything
 
-Or set environment variables:
-    export MANOMONITOR_PRIMARY_URL=http://192.168.1.100:8080
-    export MANOMONITOR_API_KEY=your_api_key
-    python3 secondary_reporter.py
+Or with manual config:
+    python3 scripts/secondary_reporter.py --primary-url http://192.168.1.100:8080
 """
 
 import argparse
 import asyncio
+import json
 import logging
 import os
+import socket
 import sys
-import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Optional
@@ -40,6 +39,105 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+
+def discover_primary_monitor(timeout: float = 5.0) -> Optional[str]:
+    """
+    Auto-discover primary monitor on local network.
+
+    Scans common ports (8080, 8000, 5000) on local subnet for ManoMonitor.
+    """
+    logger.info("🔍 Auto-discovering primary monitor on network...")
+
+    # Get local IP and subnet
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        local_ip = s.getsockname()[0]
+        s.close()
+
+        # Parse subnet (assume /24)
+        ip_parts = local_ip.split('.')
+        subnet = f"{ip_parts[0]}.{ip_parts[1]}.{ip_parts[2]}"
+
+        logger.info(f"Local subnet: {subnet}.0/24")
+
+        # Common ManoMonitor ports
+        ports = [8080, 8000, 5000]
+
+        # Scan broadcast and common IPs first (faster)
+        priority_ips = [
+            f"{subnet}.1",    # Router/gateway
+            f"{subnet}.100",  # Common static
+            f"{subnet}.10",
+            f"{subnet}.50",
+        ]
+
+        for ip in priority_ips:
+            if ip == local_ip:
+                continue
+            for port in ports:
+                url = f"http://{ip}:{port}"
+                if check_manomonitor_endpoint(url, timeout=1.0):
+                    logger.info(f"✓ Found primary monitor at {url}")
+                    return url
+
+        # If not found, scan full subnet (slower)
+        logger.info("Scanning full subnet... (this may take a minute)")
+        for i in range(2, 255):
+            ip = f"{subnet}.{i}"
+            if ip == local_ip:
+                continue
+            for port in ports:
+                url = f"http://{ip}:{port}"
+                if check_manomonitor_endpoint(url, timeout=0.5):
+                    logger.info(f"✓ Found primary monitor at {url}")
+                    return url
+    except Exception as e:
+        logger.debug(f"Discovery error: {e}")
+
+    logger.warning("✗ Could not auto-discover primary monitor")
+    return None
+
+
+def check_manomonitor_endpoint(url: str, timeout: float = 2.0) -> bool:
+    """Check if URL is a ManoMonitor instance."""
+    try:
+        import requests
+        response = requests.get(f"{url}/api/status", timeout=timeout)
+        if response.status_code == 200:
+            data = response.json()
+            # Check for ManoMonitor-specific fields
+            if "app_name" in data or "version" in data:
+                return True
+    except Exception:
+        pass
+    return False
+
+
+async def get_primary_api_key(primary_url: str) -> Optional[str]:
+    """Fetch API key from primary monitor."""
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get(f"{primary_url}/api/monitors")
+            response.raise_for_status()
+            monitors = response.json()
+
+            # Find local/primary monitor
+            primary = next((m for m in monitors if m.get("is_local")), None)
+            if primary and primary.get("api_key"):
+                return primary["api_key"]
+    except Exception as e:
+        logger.debug(f"Failed to get API key: {e}")
+    return None
+
+
+def get_local_hostname() -> str:
+    """Get local hostname for default monitor name."""
+    try:
+        return socket.gethostname()
+    except Exception:
+        return "Secondary"
 
 
 class SecondaryReporter:
@@ -74,9 +172,9 @@ class SecondaryReporter:
 
     async def start(self):
         """Start the reporter."""
-        logger.info(f"Starting secondary reporter")
-        logger.info(f"Primary URL: {self.primary_url}")
-        logger.info(f"Report interval: {self.report_interval} seconds")
+        logger.info(f"🚀 Starting secondary reporter")
+        logger.info(f"📡 Primary URL: {self.primary_url}")
+        logger.info(f"⏱️  Report interval: {self.report_interval} seconds")
 
         self.http_client = httpx.AsyncClient(timeout=30.0)
 
@@ -203,20 +301,63 @@ class SecondaryReporter:
             raise
 
 
+async def main_async(args):
+    """Async main function."""
+    # Try to get config from environment first
+    primary_url = args.primary_url or os.getenv("MANOMONITOR_PRIMARY_URL")
+    api_key = args.api_key or os.getenv("MANOMONITOR_API_KEY")
+
+    # Auto-discovery if not configured
+    if not primary_url:
+        primary_url = discover_primary_monitor()
+        if not primary_url:
+            logger.error("❌ Could not discover primary monitor")
+            logger.error("Please specify --primary-url or set MANOMONITOR_PRIMARY_URL")
+            return 1
+
+    if not api_key:
+        logger.info("🔑 Fetching API key from primary...")
+        api_key = await get_primary_api_key(primary_url)
+        if not api_key:
+            logger.error("❌ Could not retrieve API key from primary")
+            logger.error("Please specify --api-key or set MANOMONITOR_API_KEY")
+            logger.error(f"Or run on primary: manomonitor monitor-info")
+            return 1
+
+    logger.info(f"✓ Configuration complete")
+    logger.info(f"  Primary: {primary_url}")
+    logger.info(f"  API Key: {api_key[:16]}...")
+
+    # Create and start reporter
+    reporter = SecondaryReporter(
+        primary_url=primary_url,
+        api_key=api_key,
+        report_interval=args.interval,
+        batch_size=args.batch_size,
+    )
+
+    try:
+        await reporter.start()
+        return 0
+    except KeyboardInterrupt:
+        logger.info("Stopped by user")
+        return 0
+
+
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(
-        description="Report signal readings from secondary monitor to primary"
+        description="Report signal readings from secondary monitor to primary (with auto-discovery)"
     )
     parser.add_argument(
         "--primary-url",
-        default=os.getenv("MANOMONITOR_PRIMARY_URL"),
-        help="Primary monitor URL (e.g., http://192.168.1.100:8080)",
+        default=None,
+        help="Primary monitor URL (auto-discovers if not specified)",
     )
     parser.add_argument(
         "--api-key",
-        default=os.getenv("MANOMONITOR_API_KEY"),
-        help="API key for authentication with primary",
+        default=None,
+        help="API key for authentication (auto-retrieves if not specified)",
     )
     parser.add_argument(
         "--interval",
@@ -239,28 +380,12 @@ def main():
     if args.debug:
         logging.getLogger().setLevel(logging.DEBUG)
 
-    if not args.primary_url:
-        logger.error("--primary-url or MANOMONITOR_PRIMARY_URL is required")
-        parser.print_help()
-        sys.exit(1)
-
-    if not args.api_key:
-        logger.error("--api-key or MANOMONITOR_API_KEY is required")
-        parser.print_help()
-        sys.exit(1)
-
-    # Create and start reporter
-    reporter = SecondaryReporter(
-        primary_url=args.primary_url,
-        api_key=args.api_key,
-        report_interval=args.interval,
-        batch_size=args.batch_size,
-    )
-
     try:
-        asyncio.run(reporter.start())
+        exit_code = asyncio.run(main_async(args))
+        sys.exit(exit_code)
     except KeyboardInterrupt:
         logger.info("Stopped by user")
+        sys.exit(0)
 
 
 if __name__ == "__main__":
