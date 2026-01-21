@@ -154,6 +154,16 @@ async def create_or_update_asset(
     if ssid:
         await update_ssid_history(db, asset.id, ssid)
 
+    # Check for MAC randomization and group related devices
+    # Do this after we have some probe logs to analyze
+    if is_new or asset.times_seen % 10 == 0:  # Check new devices and periodically
+        try:
+            from manomonitor.utils.mac_fingerprinting import group_randomized_macs
+
+            await group_randomized_macs(db, asset, auto_create_group=True)
+        except Exception as e:
+            logger.debug(f"Error in MAC fingerprinting: {e}")
+
     return asset, is_new
 
 
