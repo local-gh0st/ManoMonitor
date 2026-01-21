@@ -4,7 +4,7 @@
 
 WiFi-based device tracking and proximity detection for your home network. Tracks devices via WiFi probe requests, ARP, and DHCP - shows them on a map and sends notifications when specific devices arrive or leave.
 
-## What it is supposed to do
+## What it is **supposed** to do
 
 - Detects devices via WiFi probe requests (even if they don't connect to your network)
 - Tracks connected devices through ARP/DHCP monitoring
@@ -32,13 +32,15 @@ cp .env.example .env
 manomonitor run
 ```
 
-Or use the install script for a full system setup:
+Or use the install script for a full system setup (*this takes forever btw):
 ```bash
 sudo ./install.sh
 ```
 
 **First run:**
 - Open `http://localhost:8080` in your browser
+- You can set device name (default wlan0) in the web UI.
+- Copy the example.env and edit the .env with your desired settings but really nothing needs to be set here initially. (can be done in Web UI)
 - Go to the Map page and click "Set Monitor Location" to place your monitor
 - Devices will start appearing as they're detected
 
@@ -50,6 +52,7 @@ All settings use the `MANOMONITOR_` prefix in your `.env` file. Key ones:
 - `MANOMONITOR_DATABASE_URL` - SQLite by default, supports PostgreSQL
 - `MANOMONITOR_IFTTT_WEBHOOK_KEY` - For push notifications
 - `MANOMONITOR_HOMEASSISTANT_URL` / `_TOKEN` - For HA integration
+- IFTTT and HA integrations not tested at all, but capabilities may be for future edits.
 
 Settings can also be changed in the web UI under Settings.
 
@@ -67,6 +70,7 @@ This still detects devices connected to your network via ARP/DHCP, just won't se
 
 For better location accuracy, run ManoMonitor on multiple devices around your space. Each one needs its location configured, and they'll work together to triangulate device positions.
 I have not tested this function fully yet so :shrug:
+Also need to share the db across your monitors so working out the kinks on this as well unless you come up with your own solution for them to play nicely together.
 
 ## License
 
