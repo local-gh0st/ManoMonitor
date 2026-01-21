@@ -1,15 +1,19 @@
-"""MAC address vendor/manufacturer lookup utility."""
+"""Enhanced MAC address vendor/manufacturer lookup with multiple data sources."""
 
+import asyncio
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 from typing import Optional
 
+import httpx
 from mac_vendor_lookup import AsyncMacLookup, MacLookup
 
 logger = logging.getLogger(__name__)
 
-# Common device type patterns based on vendor names
+
+# Enhanced device type patterns with more categories
 DEVICE_TYPE_PATTERNS = {
     # Vehicles / Cars (check first - more specific)
     r"tesla": "Vehicle",
@@ -29,7 +33,7 @@ DEVICE_TYPE_PATTERNS = {
     r"jaguar|land\s+rover": "Vehicle",
     r"subaru": "Vehicle",
     r"mazda": "Vehicle",
-    r"harman|jbl.*auto|samsung.*harman": "Vehicle",  # Car audio/infotainment
+    r"harman|jbl.*auto|samsung.*harman": "Vehicle",
     r"continental\s+auto": "Vehicle",
     r"bosch.*auto|bosch.*car": "Vehicle",
     r"denso": "Vehicle",
@@ -163,6 +167,14 @@ DEVICE_TYPE_PATTERNS = {
     r"vizio|tcl|hisense|roku.*tv|lg.*tv|samsung.*tv": "Smart TV",
     r"sony.*bravia": "Smart TV",
     r"toshiba.*tv": "Smart TV",
+
+    # Virtual Machines
+    r"vmware": "Virtual Machine",
+    r"virtualbox|oracle.*vm": "Virtual Machine",
+    r"xen\s|xensource": "Virtual Machine",
+    r"microsoft.*hyper-v": "Virtual Machine",
+    r"parallels": "Virtual Machine",
+    r"qemu": "Virtual Machine",
 }
 
 
@@ -172,6 +184,11 @@ class VendorInfo:
 
     vendor: Optional[str] = None
     device_type: Optional[str] = None
+    country: Optional[str] = None
+    is_virtual_machine: bool = False
+    block_type: Optional[str] = None  # MA-L, MA-M, MA-S
+    source: str = "unknown"  # Which data source provided the info
+    additional_info: dict = field(default_factory=dict)
 
     @property
     def display_name(self) -> str:
@@ -206,22 +223,12 @@ class VendorInfo:
             "netgear": "Netgear",
             "raspberry pi": "Raspberry Pi",
             "espressif": "Espressif",
-            # Vehicles
             "tesla": "Tesla",
             "bmw": "BMW",
-            "bayerische": "BMW",
             "mercedes": "Mercedes",
-            "daimler": "Mercedes",
             "volkswagen": "VW",
             "ford motor": "Ford",
-            "general motors": "GM",
             "toyota": "Toyota",
-            "honda motor": "Honda",
-            "hyundai motor": "Hyundai",
-            "kia motor": "Kia",
-            "volvo car": "Volvo",
-            "rivian": "Rivian",
-            "lucid": "Lucid",
         }
 
         vendor_lower = self.vendor.lower()
@@ -237,10 +244,12 @@ class VendorInfo:
         return result
 
 
-def _guess_device_type(vendor: str) -> Optional[str]:
+def _guess_device_type(vendor: str, is_vm: bool = False) -> Optional[str]:
     """Guess device type based on vendor name patterns."""
-    vendor_lower = vendor.lower()
+    if is_vm:
+        return "Virtual Machine"
 
+    vendor_lower = vendor.lower()
     for pattern, device_type in DEVICE_TYPE_PATTERNS.items():
         if re.search(pattern, vendor_lower):
             return device_type
@@ -248,109 +257,314 @@ def _guess_device_type(vendor: str) -> Optional[str]:
     return None
 
 
-class VendorLookup:
+class EnhancedVendorLookup:
     """
-    MAC address vendor lookup service.
+    Enhanced MAC address vendor lookup with multiple data sources.
 
-    Uses the IEEE OUI database to identify device manufacturers.
+    Tries multiple sources in order:
+    1. Local IEEE OUI database (mac-vendor-lookup)
+    2. api.macvendors.com (free, no API key)
+    3. maclookup.app (optional API key)
+    4. macaddress.io (optional API key)
+
+    Results are cached in memory to avoid rate limits.
     """
 
-    def __init__(self):
+    def __init__(
+        self,
+        macaddress_io_api_key: Optional[str] = None,
+        maclookup_app_api_key: Optional[str] = None,
+        cache_duration_days: int = 90,
+    ):
+        self._macaddress_io_key = macaddress_io_api_key
+        self._maclookup_app_key = maclookup_app_api_key
+        self._cache_duration = timedelta(days=cache_duration_days)
+
+        # In-memory cache
+        self._cache: dict[str, tuple[VendorInfo, datetime]] = {}
+
+        # IEEE OUI lookup
         self._sync_lookup: Optional[MacLookup] = None
         self._async_lookup: Optional[AsyncMacLookup] = None
-        self._initialized = False
+        self._ieee_initialized = False
 
-    def _init_sync(self) -> MacLookup:
-        """Initialize synchronous lookup (downloads DB if needed)."""
-        if self._sync_lookup is None:
-            self._sync_lookup = MacLookup()
-            try:
-                # Try to use cached database first
-                self._sync_lookup.update_vendors()
-            except Exception as e:
-                logger.warning(f"Could not update vendor database: {e}")
-        return self._sync_lookup
+        # HTTP client
+        self._http_client: Optional[httpx.AsyncClient] = None
 
-    async def _init_async(self) -> AsyncMacLookup:
-        """Initialize async lookup."""
-        if self._async_lookup is None:
-            self._async_lookup = AsyncMacLookup()
-            if not self._initialized:
-                try:
-                    await self._async_lookup.update_vendors()
-                    self._initialized = True
-                except Exception as e:
-                    logger.warning(f"Could not update vendor database: {e}")
-        return self._async_lookup
+    async def _get_http_client(self) -> httpx.AsyncClient:
+        """Get or create HTTP client."""
+        if self._http_client is None:
+            self._http_client = httpx.AsyncClient(
+                timeout=10.0,
+                follow_redirects=True,
+            )
+        return self._http_client
 
-    def lookup_sync(self, mac_address: str) -> VendorInfo:
-        """
-        Look up vendor information synchronously.
+    async def close(self):
+        """Close HTTP client."""
+        if self._http_client:
+            await self._http_client.aclose()
+            self._http_client = None
 
-        Args:
-            mac_address: MAC address (any format with colons, dashes, or no separator)
+    def _normalize_mac(self, mac_address: str) -> str:
+        """Normalize MAC address to uppercase with colons."""
+        # Remove any separators
+        mac = re.sub(r"[:\-\.]", "", mac_address.upper())
+        # Add colons every 2 characters
+        return ":".join(mac[i : i + 2] for i in range(0, 12, 2))
 
-        Returns:
-            VendorInfo with vendor name and guessed device type
-        """
+    def _is_cache_valid(self, cached_time: datetime) -> bool:
+        """Check if cached entry is still valid."""
+        return datetime.utcnow() - cached_time < self._cache_duration
+
+    async def _lookup_ieee_oui(self, mac_address: str) -> Optional[VendorInfo]:
+        """Look up using local IEEE OUI database."""
         try:
-            lookup = self._init_sync()
-            vendor = lookup.lookup(mac_address)
-            device_type = _guess_device_type(vendor) if vendor else None
-            return VendorInfo(vendor=vendor, device_type=device_type)
+            if self._async_lookup is None:
+                self._async_lookup = AsyncMacLookup()
+                if not self._ieee_initialized:
+                    await self._async_lookup.update_vendors()
+                    self._ieee_initialized = True
+
+            vendor = await self._async_lookup.lookup(mac_address)
+            if vendor:
+                device_type = _guess_device_type(vendor)
+                return VendorInfo(
+                    vendor=vendor,
+                    device_type=device_type,
+                    source="ieee_oui",
+                )
         except Exception as e:
-            logger.debug(f"Vendor lookup failed for {mac_address}: {e}")
-            return VendorInfo()
+            logger.debug(f"IEEE OUI lookup failed for {mac_address}: {e}")
+        return None
+
+    async def _lookup_macvendors_com(self, mac_address: str) -> Optional[VendorInfo]:
+        """Look up using api.macvendors.com (free, no API key needed)."""
+        try:
+            client = await self._get_http_client()
+            url = f"https://api.macvendors.com/{mac_address}"
+
+            response = await client.get(url)
+            if response.status_code == 200:
+                vendor = response.text.strip()
+                device_type = _guess_device_type(vendor)
+                return VendorInfo(
+                    vendor=vendor,
+                    device_type=device_type,
+                    source="macvendors.com",
+                )
+            elif response.status_code == 429:
+                logger.warning("api.macvendors.com rate limit exceeded")
+        except Exception as e:
+            logger.debug(f"macvendors.com lookup failed for {mac_address}: {e}")
+        return None
+
+    async def _lookup_maclookup_app(self, mac_address: str) -> Optional[VendorInfo]:
+        """Look up using maclookup.app API."""
+        if not self._maclookup_app_key:
+            return None
+
+        try:
+            client = await self._get_http_client()
+            # Extract OUI (first 6 characters)
+            oui = mac_address.replace(":", "")[:6]
+            url = f"https://api.maclookup.app/v2/macs/{oui}"
+
+            headers = {}
+            if self._maclookup_app_key:
+                headers["X-Authentication-Token"] = self._maclookup_app_key
+
+            response = await client.get(url, headers=headers)
+            if response.status_code == 200:
+                data = response.json()
+                vendor = data.get("company")
+                if vendor:
+                    device_type = _guess_device_type(vendor)
+                    return VendorInfo(
+                        vendor=vendor,
+                        device_type=device_type,
+                        country=data.get("country"),
+                        block_type=data.get("blockType"),
+                        source="maclookup.app",
+                        additional_info={
+                            "blockStart": data.get("blockStart"),
+                            "blockEnd": data.get("blockEnd"),
+                            "blockSize": data.get("blockSize"),
+                        },
+                    )
+        except Exception as e:
+            logger.debug(f"maclookup.app lookup failed for {mac_address}: {e}")
+        return None
+
+    async def _lookup_macaddress_io(self, mac_address: str) -> Optional[VendorInfo]:
+        """Look up using macaddress.io API (requires API key)."""
+        if not self._macaddress_io_key:
+            return None
+
+        try:
+            client = await self._get_http_client()
+            url = f"https://api.macaddress.io/v1"
+            params = {
+                "apiKey": self._macaddress_io_key,
+                "output": "json",
+                "search": mac_address,
+            }
+
+            response = await client.get(url, params=params)
+            if response.status_code == 200:
+                data = response.json()
+
+                vendor_details = data.get("vendorDetails", {})
+                mac_details = data.get("macAddressDetails", {})
+
+                vendor = vendor_details.get("companyName")
+                if vendor:
+                    is_vm = mac_details.get("virtualMachine") == "true"
+                    device_type = _guess_device_type(vendor, is_vm)
+
+                    return VendorInfo(
+                        vendor=vendor,
+                        device_type=device_type,
+                        country=vendor_details.get("countryCode"),
+                        is_virtual_machine=is_vm,
+                        source="macaddress.io",
+                        additional_info={
+                            "companyAddress": vendor_details.get("companyAddress"),
+                            "transmissionType": mac_details.get("transmissionType"),
+                            "administrationType": mac_details.get("administrationType"),
+                        },
+                    )
+        except Exception as e:
+            logger.debug(f"macaddress.io lookup failed for {mac_address}: {e}")
+        return None
 
     async def lookup(self, mac_address: str) -> VendorInfo:
         """
-        Look up vendor information asynchronously.
+        Look up vendor information using multiple data sources.
+
+        Tries sources in order until one succeeds:
+        1. Memory cache
+        2. IEEE OUI database
+        3. api.macvendors.com
+        4. maclookup.app (if API key configured)
+        5. macaddress.io (if API key configured)
 
         Args:
-            mac_address: MAC address (any format with colons, dashes, or no separator)
+            mac_address: MAC address in any format
 
         Returns:
-            VendorInfo with vendor name and guessed device type
+            VendorInfo with vendor details or empty info if not found
+        """
+        normalized_mac = self._normalize_mac(mac_address)
+
+        # Check memory cache
+        if normalized_mac in self._cache:
+            cached_info, cached_time = self._cache[normalized_mac]
+            if self._is_cache_valid(cached_time):
+                logger.debug(f"Cache hit for {normalized_mac}")
+                return cached_info
+
+        # Try data sources in order
+        sources = [
+            self._lookup_ieee_oui,
+            self._lookup_macvendors_com,
+            self._lookup_maclookup_app,
+            self._lookup_macaddress_io,
+        ]
+
+        for source_func in sources:
+            try:
+                result = await source_func(normalized_mac)
+                if result and result.vendor:
+                    # Cache the result
+                    self._cache[normalized_mac] = (result, datetime.utcnow())
+                    logger.info(
+                        f"Vendor lookup for {normalized_mac}: {result.vendor} "
+                        f"({result.device_type or 'Unknown type'}) from {result.source}"
+                    )
+                    return result
+            except Exception as e:
+                logger.debug(f"Lookup source {source_func.__name__} failed: {e}")
+                continue
+
+        # No result found
+        logger.debug(f"No vendor info found for {normalized_mac}")
+        empty_info = VendorInfo(source="none")
+        self._cache[normalized_mac] = (empty_info, datetime.utcnow())
+        return empty_info
+
+    def lookup_sync(self, mac_address: str) -> VendorInfo:
+        """
+        Synchronous wrapper for lookup (uses only IEEE OUI database).
+
+        For full multi-source lookup, use async lookup() method.
         """
         try:
-            lookup = await self._init_async()
-            vendor = await lookup.lookup(mac_address)
+            if self._sync_lookup is None:
+                self._sync_lookup = MacLookup()
+                try:
+                    self._sync_lookup.update_vendors()
+                except Exception as e:
+                    logger.warning(f"Could not update vendor database: {e}")
+
+            vendor = self._sync_lookup.lookup(mac_address)
             device_type = _guess_device_type(vendor) if vendor else None
-            return VendorInfo(vendor=vendor, device_type=device_type)
+            return VendorInfo(
+                vendor=vendor,
+                device_type=device_type,
+                source="ieee_oui",
+            )
         except Exception as e:
-            logger.debug(f"Vendor lookup failed for {mac_address}: {e}")
+            logger.debug(f"Sync vendor lookup failed for {mac_address}: {e}")
             return VendorInfo()
 
-    async def update_database(self) -> bool:
-        """Update the vendor database from IEEE."""
+    async def update_ieee_database(self) -> bool:
+        """Update the IEEE OUI database."""
         try:
-            lookup = await self._init_async()
-            await lookup.update_vendors()
-            self._initialized = True
-            logger.info("Vendor database updated successfully")
+            if self._async_lookup is None:
+                self._async_lookup = AsyncMacLookup()
+            await self._async_lookup.update_vendors()
+            self._ieee_initialized = True
+            logger.info("IEEE OUI database updated successfully")
             return True
         except Exception as e:
-            logger.error(f"Failed to update vendor database: {e}")
+            logger.error(f"Failed to update IEEE OUI database: {e}")
             return False
+
+    def clear_cache(self):
+        """Clear the in-memory cache."""
+        self._cache.clear()
+        logger.info("Vendor lookup cache cleared")
 
 
 # Singleton instance
-_vendor_lookup: Optional[VendorLookup] = None
+_enhanced_lookup: Optional[EnhancedVendorLookup] = None
 
 
-def get_vendor_lookup() -> VendorLookup:
-    """Get or create the global VendorLookup instance."""
-    global _vendor_lookup
-    if _vendor_lookup is None:
-        _vendor_lookup = VendorLookup()
-    return _vendor_lookup
+def get_enhanced_vendor_lookup() -> EnhancedVendorLookup:
+    """Get or create the global EnhancedVendorLookup instance."""
+    global _enhanced_lookup
+    if _enhanced_lookup is None:
+        # Try to get API keys and settings from config
+        try:
+            from manomonitor.config import settings
+
+            _enhanced_lookup = EnhancedVendorLookup(
+                macaddress_io_api_key=settings.macaddress_io_api_key or None,
+                maclookup_app_api_key=settings.maclookup_app_api_key or None,
+                cache_duration_days=settings.vendor_cache_days,
+            )
+        except Exception:
+            # Fallback without config
+            _enhanced_lookup = EnhancedVendorLookup()
+    return _enhanced_lookup
 
 
 async def lookup_vendor(mac_address: str) -> VendorInfo:
-    """Convenience function for async vendor lookup."""
-    return await get_vendor_lookup().lookup(mac_address)
+    """Convenience function for async vendor lookup with multiple sources."""
+    return await get_enhanced_vendor_lookup().lookup(mac_address)
 
 
 def lookup_vendor_sync(mac_address: str) -> VendorInfo:
-    """Convenience function for sync vendor lookup."""
-    return get_vendor_lookup().lookup_sync(mac_address)
+    """Convenience function for sync vendor lookup (IEEE OUI only)."""
+    return get_enhanced_vendor_lookup().lookup_sync(mac_address)

@@ -108,22 +108,33 @@ async def create_or_update_asset(
     is_new = asset is None
 
     if is_new:
-        # Look up vendor info
+        # Look up vendor info using enhanced multi-source lookup
         from manomonitor.utils.vendor import lookup_vendor
 
         vendor_info = await lookup_vendor(mac_address)
 
-        # Create new asset
+        # Create new asset with enhanced vendor info
         asset = Asset(
             mac_address=mac_address,
             signal_threshold=settings.default_signal_threshold,
             last_signal_strength=signal_strength,
             vendor=vendor_info.vendor,
             device_type=vendor_info.device_type,
+            vendor_country=vendor_info.country,
+            is_virtual_machine=vendor_info.is_virtual_machine,
         )
         db.add(asset)
         await db.flush()
-        logger.info(f"New device discovered: {mac_address} ({vendor_info.vendor or 'Unknown'})")
+
+        # Log with enhanced info
+        device_info = vendor_info.vendor or "Unknown"
+        if vendor_info.device_type:
+            device_info += f" ({vendor_info.device_type})"
+        if vendor_info.country:
+            device_info += f" [{vendor_info.country}]"
+        if vendor_info.is_virtual_machine:
+            device_info += " [VM]"
+        logger.info(f"New device discovered: {mac_address} - {device_info} [Source: {vendor_info.source}]")
     else:
         # Update existing asset
         asset.last_seen = datetime.utcnow()
