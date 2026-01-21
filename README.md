@@ -68,11 +68,80 @@ manomonitor run --no-capture
 
 This still detects devices connected to your network via ARP/DHCP, just won't see devices that aren't connected.
 
-## Multiple monitors
+## Multiple Monitors (Triangulation)
 
-For better location accuracy, run ManoMonitor on multiple devices around your space. Each one needs its location configured, and they'll work together to triangulate device positions.
-I have not tested this function fully yet so :shrug:
-Also need to share the db across your monitors so working out the kinks on this as well unless you come up with your own solution for them to play nicely together.
+**Now fully supported with zero-config setup!**
+
+Run ManoMonitor on 2-3+ devices to triangulate device positions using signal strength. The system uses a primary/secondary architecture with automatic discovery.
+
+**Quick Setup:**
+
+1. **Primary Monitor** (central hub):
+```bash
+git clone https://github.com/local-gh0st/ManoMonitor.git
+cd ManoMonitor
+python3 -m venv venv && source venv/bin/activate && pip install -e .
+cp .env.example .env
+# Edit .env: Set MONITOR_LATITUDE and MONITOR_LONGITUDE
+sudo manomonitor run
+```
+
+2. **Secondary Monitors** (auto-configured):
+```bash
+git clone https://github.com/local-gh0st/ManoMonitor.git
+cd ManoMonitor
+python3 -m venv venv && source venv/bin/activate && pip install -e .
+
+# Run the setup wizard - only needs primary URL!
+./scripts/setup-secondary.sh
+```
+
+The setup wizard auto-detects:
+- WiFi interface
+- Monitor location (GPS/WiFi/IP geolocation)
+- Primary monitor on network
+- API key from primary
+
+**See [MULTI_MONITOR_SETUP.md](MULTI_MONITOR_SETUP.md) for detailed documentation.**
+
+## Enhanced Device Identification
+
+ManoMonitor now uses multiple vendor databases for accurate device identification:
+
+- **Local IEEE OUI database** (offline, fast)
+- **api.macvendors.com** (free, 1000 req/day, no API key)
+- **macaddress.io** (optional API key, rich data)
+- **maclookup.app** (optional API key)
+
+Provides:
+- Manufacturer name
+- Device type (Mobile, Computer, IoT, Vehicle, etc.)
+- Country of origin
+- Virtual machine detection
+
+**Optional:** Add API keys to `.env` for enhanced data:
+```bash
+MANOMONITOR_MACADDRESS_IO_API_KEY=your_key
+MANOMONITOR_MACLOOKUP_APP_API_KEY=your_key
+```
+
+Get free API keys:
+- https://macaddress.io/ (1,000 requests/month)
+- https://maclookup.app/ (1,000 requests/day)
+
+## CLI Commands
+
+Manage your monitors from the command line:
+
+```bash
+manomonitor run                    # Start the server
+manomonitor devices                # List tracked devices
+manomonitor monitor-info           # Show API key and monitor details
+manomonitor monitor-list           # List all registered monitors
+manomonitor monitor-register URL   # Register with primary monitor
+manomonitor check                  # Verify dependencies
+manomonitor config                 # Show current configuration
+```
 
 ## License
 

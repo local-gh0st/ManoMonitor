@@ -80,7 +80,6 @@ sudo systemctl status manomonitor-reporter
 ```bash
 git clone https://github.com/local-gh0st/ManoMonitor.git
 cd ManoMonitor
-git checkout claude/review-manomonitor-PocQ4
 python3 -m venv venv
 source venv/bin/activate
 pip install -e .
@@ -113,7 +112,6 @@ sudo ./venv/bin/manomonitor run
 # Clone and install (same as primary)
 git clone https://github.com/local-gh0st/ManoMonitor.git
 cd ManoMonitor
-git checkout claude/review-manomonitor-PocQ4
 python3 -m venv venv
 source venv/bin/activate
 pip install -e .
