@@ -1,0 +1,640 @@
+{% extends "base.html" %}
+
+{% block title %}Settings - ManoMonitor{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div>
+        <h1 class="text-2xl font-bold text-gray-900 dark:text-white">Settings</h1>
+        <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            Configure ManoMonitor settings. Changes are saved automatically and take effect immediately.
+        </p>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <!-- Editable Settings Form -->
+        <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
+            <h2 class="text-lg font-medium text-gray-900 dark:text-white mb-4">General Settings</h2>
+            <div id="settings-message" class="hidden mb-4 p-3 rounded-md text-sm"></div>
+
+            <form id="settings-form" class="space-y-4">
+                <!-- Log Retention -->
+                <div>
+                    <label for="log_retention_days" class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                        Log Retention (days)
+                    </label>
+                    <input type="number" id="log_retention_days" name="log_retention_days"
+                           value="{{ settings.log_retention_days }}"
+                           min="0" max="365"
+                           class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm">
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">How long to keep probe logs (0 = forever)</p>
+                </div>
+
+                <!-- Presence Timeout -->
+                <div>
+                    <label for="presence_timeout_minutes" class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                        Presence Timeout (minutes)
+                    </label>
+                    <input type="number" id="presence_timeout_minutes" name="presence_timeout_minutes"
+                           value="{{ settings.presence_timeout_minutes }}"
+                           min="1" max="1440"
+                           class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm">
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Minutes without detection before device is "away"</p>
+                </div>
+
+                <!-- Notification Cooldown -->
+                <div>
+                    <label for="notification_cooldown_minutes" class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                        Notification Cooldown (minutes)
+                    </label>
+                    <input type="number" id="notification_cooldown_minutes" name="notification_cooldown_minutes"
+                           value="{{ settings.notification_cooldown_minutes }}"
+                           min="1" max="1440"
+                           class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm">
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Wait time between repeat notifications for same device</p>
+                </div>
+
+                <!-- Default Signal Threshold -->
+                <div>
+                    <label for="default_signal_threshold" class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                        Default Signal Threshold (dBm)
+                    </label>
+                    <input type="number" id="default_signal_threshold" name="default_signal_threshold"
+                           value="{{ settings.default_signal_threshold }}"
+                           min="-100" max="0"
+                           class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm">
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Signal threshold for new devices (-40=close, -80=far)</p>
+                </div>
+
+                <button type="submit" id="save-general-btn"
+                        class="w-full inline-flex justify-center items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                    Save General Settings
+                </button>
+            </form>
+        </div>
+
+        <!-- Monitor Location Settings -->
+        <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
+            <h2 class="text-lg font-medium text-gray-900 dark:text-white mb-4">Monitor Location</h2>
+            <div id="location-message" class="hidden mb-4 p-3 rounded-md text-sm"></div>
+
+            <form id="location-form" class="space-y-4">
+                <!-- Monitor Name -->
+                <div>
+                    <label for="monitor_name" class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                        Monitor Name
+                    </label>
+                    <input type="text" id="monitor_name" name="monitor_name"
+                           value="{{ settings.monitor_name }}"
+                           maxlength="100"
+                           class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm">
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Name for this monitor (e.g., "Living Room")</p>
+                </div>
+
+                <!-- Paste Coordinates -->
+                <div>
+                    <label for="paste_coordinates" class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                        Paste Coordinates (from Google Maps)
+                    </label>
+                    <input type="text" id="paste_coordinates" name="paste_coordinates"
+                           placeholder="39.96047791997103, -85.88628644940884"
+                           class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm">
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Paste "lat, long" from Google Maps - auto-fills fields below</p>
+                </div>
+
+                <!-- Latitude -->
+                <div>
+                    <label for="monitor_latitude" class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                        Latitude
+                    </label>
+                    <input type="text" id="monitor_latitude" name="monitor_latitude"
+                           value="{{ settings.monitor_latitude }}"
+                           pattern="-?[0-9]*\.?[0-9]+"
+                           class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm">
+                </div>
+
+                <!-- Longitude -->
+                <div>
+                    <label for="monitor_longitude" class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                        Longitude
+                    </label>
+                    <input type="text" id="monitor_longitude" name="monitor_longitude"
+                           value="{{ settings.monitor_longitude }}"
+                           pattern="-?[0-9]*\.?[0-9]+"
+                           class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm">
+                </div>
+
+                <div class="flex space-x-2">
+                    <button type="submit" id="save-location-btn"
+                            class="flex-1 inline-flex justify-center items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                        Save Location
+                    </button>
+                    <button type="button" id="auto-detect-btn"
+                            class="inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 shadow-sm text-sm font-medium rounded-md text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
+                        Auto-Detect
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <!-- Signal Calibration Settings -->
+        <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
+            <h2 class="text-lg font-medium text-gray-900 dark:text-white mb-4">Signal Calibration</h2>
+            <p class="text-sm text-gray-500 dark:text-gray-400 mb-4">
+                Adjust these values to improve distance estimation accuracy.
+            </p>
+            <div id="calibration-message" class="hidden mb-4 p-3 rounded-md text-sm"></div>
+
+            <form id="calibration-form" class="space-y-4">
+                <!-- TX Power -->
+                <div>
+                    <label for="signal_tx_power" class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                        TX Power (dBm at 1m)
+                    </label>
+                    <input type="number" id="signal_tx_power" name="signal_tx_power"
+                           value="{{ settings.signal_tx_power }}"
+                           min="-100" max="0"
+                           class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm">
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Reference signal at 1 meter (-59 typical)</p>
+                </div>
+
+                <!-- Path Loss -->
+                <div>
+                    <label for="signal_path_loss" class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                        Path Loss Exponent
+                    </label>
+                    <input type="number" id="signal_path_loss" name="signal_path_loss"
+                           value="{{ settings.signal_path_loss }}"
+                           step="0.1" min="1.5" max="6.0"
+                           class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm">
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">2=free space, 3=indoor, 4=obstructed</p>
+                </div>
+
+                <!-- Averaging Window -->
+                <div>
+                    <label for="signal_averaging_window" class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                        Signal Averaging Window
+                    </label>
+                    <input type="number" id="signal_averaging_window" name="signal_averaging_window"
+                           value="{{ settings.signal_averaging_window }}"
+                           min="1" max="20"
+                           class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm">
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Number of readings to average (1=disabled)</p>
+                </div>
+
+                <button type="submit" id="save-calibration-btn"
+                        class="w-full inline-flex justify-center items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                    Save Calibration
+                </button>
+            </form>
+        </div>
+
+        <!-- Notification Providers -->
+        <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
+            <h2 class="text-lg font-medium text-gray-900 dark:text-white mb-4">Notification Providers</h2>
+
+            <div class="space-y-4">
+                <!-- IFTTT -->
+                <div class="flex items-center justify-between p-4 border border-gray-200 dark:border-gray-700 rounded-lg">
+                    <div class="flex items-center">
+                        <div class="flex-shrink-0">
+                            <span class="text-2xl">&#x1F517;</span>
+                        </div>
+                        <div class="ml-3">
+                            <p class="text-sm font-medium text-gray-900 dark:text-white">IFTTT</p>
+                            <p class="text-xs text-gray-500 dark:text-gray-400">Webhook integration</p>
+                        </div>
+                    </div>
+                    {% if settings.ifttt_enabled and settings.ifttt_webhook_key %}
+                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
+                        Configured
+                    </span>
+                    {% else %}
+                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300">
+                        Not configured
+                    </span>
+                    {% endif %}
+                </div>
+
+                <!-- Home Assistant -->
+                <div class="flex items-center justify-between p-4 border border-gray-200 dark:border-gray-700 rounded-lg">
+                    <div class="flex items-center">
+                        <div class="flex-shrink-0">
+                            <span class="text-2xl">&#x1F3E0;</span>
+                        </div>
+                        <div class="ml-3">
+                            <p class="text-sm font-medium text-gray-900 dark:text-white">Home Assistant</p>
+                            <p class="text-xs text-gray-500 dark:text-gray-400">REST API integration</p>
+                        </div>
+                    </div>
+                    {% if settings.homeassistant_enabled and settings.homeassistant_token %}
+                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
+                        Configured
+                    </span>
+                    {% else %}
+                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300">
+                        Not configured
+                    </span>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="mt-4">
+                <button hx-post="/api/notifications/test"
+                        hx-target="#test-result"
+                        class="inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 shadow-sm text-sm font-medium rounded-md text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
+                    Test All Notifications
+                </button>
+                <div id="test-result" class="mt-2 text-sm"></div>
+            </div>
+
+            <p class="mt-4 text-sm text-gray-500 dark:text-gray-400">
+                Configure notification providers in your <code class="bg-gray-100 dark:bg-gray-700 px-1 rounded">.env</code> file.
+            </p>
+        </div>
+
+        <!-- Capture Settings -->
+        <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
+            <h2 class="text-lg font-medium text-gray-900 dark:text-white mb-4">Capture Settings</h2>
+            <div id="capture-message" class="hidden mb-4 p-3 rounded-md text-sm"></div>
+
+            <form id="capture-form" class="space-y-4">
+                <!-- WiFi Interface -->
+                <div>
+                    <label for="wifi_interface" class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                        WiFi Interface
+                    </label>
+                    <input type="text" id="wifi_interface" name="wifi_interface"
+                           value="{{ settings.wifi_interface }}"
+                           placeholder="wlan0"
+                           class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm">
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Interface for WiFi capture (requires restart)</p>
+                </div>
+
+                <button type="submit" id="save-capture-btn"
+                        class="w-full inline-flex justify-center items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                    Save Capture Settings
+                </button>
+            </form>
+        </div>
+
+        <!-- Current Configuration (Read-Only) -->
+        <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
+            <h2 class="text-lg font-medium text-gray-900 dark:text-white mb-4">System Information</h2>
+
+            <dl class="grid grid-cols-2 gap-4">
+                <div>
+                    <dt class="text-sm text-gray-500 dark:text-gray-400">Database</dt>
+                    <dd class="text-sm font-medium text-gray-900 dark:text-white">{{ "SQLite" if not settings.database_url or "sqlite" in settings.database_url else "PostgreSQL" }}</dd>
+                </div>
+                <div>
+                    <dt class="text-sm text-gray-500 dark:text-gray-400">Capture Enabled</dt>
+                    <dd class="text-sm font-medium text-gray-900 dark:text-white">{{ "Yes" if settings.capture_enabled else "No" }}</dd>
+                </div>
+                <div>
+                    <dt class="text-sm text-gray-500 dark:text-gray-400">GPS Enabled</dt>
+                    <dd class="text-sm font-medium text-gray-900 dark:text-white">{{ "Yes" if settings.gps_enabled else "No" }}</dd>
+                </div>
+                <div>
+                    <dt class="text-sm text-gray-500 dark:text-gray-400">ARP Monitoring</dt>
+                    <dd class="text-sm font-medium text-gray-900 dark:text-white">{{ "Yes" if settings.arp_monitoring_enabled else "No" }}</dd>
+                </div>
+            </dl>
+        </div>
+
+        <!-- System Diagnostics -->
+        <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6 lg:col-span-2">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-lg font-medium text-gray-900 dark:text-white">System Diagnostics</h2>
+                <button id="refresh-diagnostics-btn"
+                        onclick="loadDiagnostics()"
+                        class="inline-flex items-center px-3 py-1 border border-gray-300 dark:border-gray-600 shadow-sm text-sm font-medium rounded-md text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
+                    Refresh
+                </button>
+            </div>
+
+            <div id="diagnostics-loading" class="text-gray-500 dark:text-gray-400">Loading diagnostics...</div>
+            <div id="diagnostics-content" class="hidden">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <!-- ARP Monitoring Status -->
+                    <div class="border dark:border-gray-700 rounded-lg p-4">
+                        <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">ARP Monitoring</h3>
+                        <div id="diag-arp-status" class="space-y-2">
+                            <!-- Filled by JS -->
+                        </div>
+                    </div>
+
+                    <!-- DHCP Monitoring Status -->
+                    <div class="border dark:border-gray-700 rounded-lg p-4">
+                        <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">DHCP Monitoring</h3>
+                        <div id="diag-dhcp-status" class="space-y-2">
+                            <!-- Filled by JS -->
+                        </div>
+                    </div>
+
+                    <!-- WiFi Capture Status -->
+                    <div class="border dark:border-gray-700 rounded-lg p-4">
+                        <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">WiFi Capture</h3>
+                        <div id="diag-wifi-status" class="space-y-2">
+                            <!-- Filled by JS -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ARP Table Sample -->
+                <div id="diag-arp-sample" class="mt-4 hidden">
+                    <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">ARP Table Sample (first 5 entries)</h3>
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full text-sm">
+                            <thead>
+                                <tr class="bg-gray-50 dark:bg-gray-700">
+                                    <th class="px-3 py-2 text-left text-gray-600 dark:text-gray-300">IP Address</th>
+                                    <th class="px-3 py-2 text-left text-gray-600 dark:text-gray-300">MAC Address</th>
+                                </tr>
+                            </thead>
+                            <tbody id="diag-arp-table-body">
+                                <!-- Filled by JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Helper function to show message
+function showMessage(elementId, message, isSuccess) {
+    const el = document.getElementById(elementId);
+    el.textContent = message;
+    el.className = `mb-4 p-3 rounded-md text-sm ${isSuccess ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'}`;
+    el.classList.remove('hidden');
+    setTimeout(() => el.classList.add('hidden'), 5000);
+}
+
+// General settings form
+document.getElementById('settings-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById('save-general-btn');
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
+
+    try {
+        const response = await fetch('/api/settings', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                log_retention_days: parseInt(document.getElementById('log_retention_days').value),
+                presence_timeout_minutes: parseInt(document.getElementById('presence_timeout_minutes').value),
+                notification_cooldown_minutes: parseInt(document.getElementById('notification_cooldown_minutes').value),
+                default_signal_threshold: parseInt(document.getElementById('default_signal_threshold').value),
+            })
+        });
+
+        if (response.ok) {
+            showMessage('settings-message', 'Settings saved successfully!', true);
+        } else {
+            const data = await response.json();
+            showMessage('settings-message', data.detail || 'Failed to save settings', false);
+        }
+    } catch (err) {
+        showMessage('settings-message', 'Error: ' + err.message, false);
+    }
+
+    btn.disabled = false;
+    btn.textContent = 'Save General Settings';
+});
+
+// Location settings form
+document.getElementById('location-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById('save-location-btn');
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
+
+    try {
+        const response = await fetch('/api/settings', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                monitor_name: document.getElementById('monitor_name').value,
+                monitor_latitude: parseFloat(document.getElementById('monitor_latitude').value),
+                monitor_longitude: parseFloat(document.getElementById('monitor_longitude').value),
+            })
+        });
+
+        if (response.ok) {
+            showMessage('location-message', 'Location saved successfully!', true);
+        } else {
+            const data = await response.json();
+            showMessage('location-message', data.detail || 'Failed to save location', false);
+        }
+    } catch (err) {
+        showMessage('location-message', 'Error: ' + err.message, false);
+    }
+
+    btn.disabled = false;
+    btn.textContent = 'Save Location';
+});
+
+// Auto-detect location
+document.getElementById('auto-detect-btn').addEventListener('click', async () => {
+    const btn = document.getElementById('auto-detect-btn');
+    btn.disabled = true;
+    btn.textContent = 'Detecting...';
+
+    try {
+        const response = await fetch('/api/monitors/auto-detect-location', {
+            method: 'POST'
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            document.getElementById('monitor_latitude').value = data.latitude.toFixed(6);
+            document.getElementById('monitor_longitude').value = data.longitude.toFixed(6);
+            showMessage('location-message', `${data.message}`, true);
+        } else {
+            const data = await response.json();
+            showMessage('location-message', data.detail || 'Auto-detection failed', false);
+        }
+    } catch (err) {
+        showMessage('location-message', 'Error: ' + err.message, false);
+    }
+
+    btn.disabled = false;
+    btn.textContent = 'Auto-Detect';
+});
+
+// Parse pasted coordinates (Google Maps format: "lat, long")
+document.getElementById('paste_coordinates').addEventListener('input', (e) => {
+    const value = e.target.value.trim();
+    // Match patterns like "39.96047791997103, -85.88628644940884" or "39.96047791997103,-85.88628644940884"
+    const match = value.match(/^(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)$/);
+    if (match) {
+        document.getElementById('monitor_latitude').value = match[1];
+        document.getElementById('monitor_longitude').value = match[2];
+        e.target.value = ''; // Clear the paste field
+        showMessage('location-message', 'Coordinates parsed successfully!', true);
+    }
+});
+
+// Also handle paste event directly
+document.getElementById('paste_coordinates').addEventListener('paste', (e) => {
+    setTimeout(() => {
+        const value = e.target.value.trim();
+        const match = value.match(/^(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)$/);
+        if (match) {
+            document.getElementById('monitor_latitude').value = match[1];
+            document.getElementById('monitor_longitude').value = match[2];
+            e.target.value = '';
+            showMessage('location-message', 'Coordinates parsed successfully!', true);
+        }
+    }, 10);
+});
+
+// Capture settings form
+document.getElementById('capture-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById('save-capture-btn');
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
+
+    try {
+        const response = await fetch('/api/settings', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                wifi_interface: document.getElementById('wifi_interface').value,
+            })
+        });
+
+        if (response.ok) {
+            showMessage('capture-message', 'Capture settings saved! Restart ManoMonitor to apply.', true);
+        } else {
+            const data = await response.json();
+            showMessage('capture-message', data.detail || 'Failed to save settings', false);
+        }
+    } catch (err) {
+        showMessage('capture-message', 'Error: ' + err.message, false);
+    }
+
+    btn.disabled = false;
+    btn.textContent = 'Save Capture Settings';
+});
+
+// Calibration settings form
+document.getElementById('calibration-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById('save-calibration-btn');
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
+
+    try {
+        const response = await fetch('/api/settings', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                signal_tx_power: parseInt(document.getElementById('signal_tx_power').value),
+                signal_path_loss: parseFloat(document.getElementById('signal_path_loss').value),
+                signal_averaging_window: parseInt(document.getElementById('signal_averaging_window').value),
+            })
+        });
+
+        if (response.ok) {
+            showMessage('calibration-message', 'Calibration saved successfully!', true);
+        } else {
+            const data = await response.json();
+            showMessage('calibration-message', data.detail || 'Failed to save calibration', false);
+        }
+    } catch (err) {
+        showMessage('calibration-message', 'Error: ' + err.message, false);
+    }
+
+    btn.disabled = false;
+    btn.textContent = 'Save Calibration';
+});
+
+// Load diagnostics on page load
+async function loadDiagnostics() {
+    const loading = document.getElementById('diagnostics-loading');
+    const content = document.getElementById('diagnostics-content');
+
+    loading.classList.remove('hidden');
+    content.classList.add('hidden');
+
+    try {
+        const response = await fetch('/api/diagnostics');
+        const data = await response.json();
+
+        // ARP Status
+        const arpHtml = `
+            <div class="flex items-center space-x-2">
+                <span class="w-3 h-3 rounded-full ${data.arp_command_available ? 'bg-green-500' : 'bg-red-500'}"></span>
+                <span class="text-sm text-gray-600 dark:text-gray-400">Command: ${data.arp_command_available ? 'Available' : 'Not found'}</span>
+            </div>
+            <div class="text-sm text-gray-600 dark:text-gray-400">
+                Table entries: <span class="font-medium text-gray-900 dark:text-white">${data.arp_table_entries}</span>
+            </div>
+            <div class="text-sm text-gray-600 dark:text-gray-400">
+                Known MACs: <span class="font-medium text-gray-900 dark:text-white">${data.known_arp_macs}</span>
+            </div>
+            ${data.arp_error ? `<div class="text-sm text-red-600 dark:text-red-400">${data.arp_error}</div>` : ''}
+        `;
+        document.getElementById('diag-arp-status').innerHTML = arpHtml;
+
+        // DHCP Status
+        const dhcpHtml = `
+            <div class="flex items-center space-x-2">
+                <span class="w-3 h-3 rounded-full ${data.dhcp_lease_file_found ? 'bg-green-500' : 'bg-yellow-500'}"></span>
+                <span class="text-sm text-gray-600 dark:text-gray-400">Lease file: ${data.dhcp_lease_file_found ? 'Found' : 'Not found'}</span>
+            </div>
+            ${data.dhcp_lease_file_path ? `<div class="text-xs text-gray-500 dark:text-gray-400 truncate" title="${data.dhcp_lease_file_path}">${data.dhcp_lease_file_path}</div>` : ''}
+            <div class="text-sm text-gray-600 dark:text-gray-400">
+                Entries: <span class="font-medium text-gray-900 dark:text-white">${data.dhcp_entries}</span>
+            </div>
+            <div class="text-sm text-gray-600 dark:text-gray-400">
+                Known MACs: <span class="font-medium text-gray-900 dark:text-white">${data.known_dhcp_macs}</span>
+            </div>
+        `;
+        document.getElementById('diag-dhcp-status').innerHTML = dhcpHtml;
+
+        // WiFi Status
+        const wifiHtml = `
+            <div class="flex items-center space-x-2">
+                <span class="w-3 h-3 rounded-full ${data.tshark_available ? 'bg-green-500' : 'bg-red-500'}"></span>
+                <span class="text-sm text-gray-600 dark:text-gray-400">tshark: ${data.tshark_available ? 'Available' : 'Not found'}</span>
+            </div>
+            <div class="flex items-center space-x-2">
+                <span class="w-3 h-3 rounded-full ${data.wifi_interface_exists ? 'bg-green-500' : 'bg-red-500'}"></span>
+                <span class="text-sm text-gray-600 dark:text-gray-400">Interface: ${data.wifi_interface_exists ? 'OK' : 'Error'}</span>
+            </div>
+            ${data.wifi_interface_info ? `<div class="text-xs text-gray-500 dark:text-gray-400">${data.wifi_interface_info}</div>` : ''}
+        `;
+        document.getElementById('diag-wifi-status').innerHTML = wifiHtml;
+
+        // ARP Table sample
+        if (data.arp_sample_entries && data.arp_sample_entries.length > 0) {
+            const tableBody = document.getElementById('diag-arp-table-body');
+            tableBody.innerHTML = data.arp_sample_entries.map(entry => `
+                <tr class="border-t dark:border-gray-700">
+                    <td class="px-3 py-2 text-gray-900 dark:text-white">${entry.ip}</td>
+                    <td class="px-3 py-2 font-mono text-gray-900 dark:text-white">${entry.mac}</td>
+                </tr>
+            `).join('');
+            document.getElementById('diag-arp-sample').classList.remove('hidden');
+        } else {
+            document.getElementById('diag-arp-sample').classList.add('hidden');
+        }
+
+        loading.classList.add('hidden');
+        content.classList.remove('hidden');
+    } catch (err) {
+        loading.textContent = 'Error loading diagnostics: ' + err.message;
+    }
+}
+
+// Load diagnostics on page load
+document.addEventListener('DOMContentLoaded', loadDiagnostics);
+</script>
+{% endblock %}

@@ -1,0 +1,508 @@
+{% extends "base.html" %}
+
+{% block title %}Device Map - ManoMonitor{% endblock %}
+
+{% block head %}
+<!-- Leaflet CSS -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+<style>
+    #map {
+        height: calc(100vh - 200px);
+        min-height: 400px;
+        border-radius: 0.5rem;
+    }
+    #map.location-mode {
+        cursor: crosshair !important;
+    }
+    .device-marker {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.5rem;
+        background: white;
+        border-radius: 50%;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+        border: 2px solid #4f46e5;
+    }
+    .device-marker.present {
+        border-color: #22c55e;
+    }
+    .device-marker.away {
+        border-color: #9ca3af;
+        opacity: 0.6;
+    }
+    .monitor-marker {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.2rem;
+        background: #4f46e5;
+        color: white;
+        border-radius: 4px;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+        font-weight: bold;
+    }
+    .pending-marker {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.5rem;
+        background: #f59e0b;
+        color: white;
+        border-radius: 50%;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+        border: 3px dashed white;
+        animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse {
+        0%, 100% { transform: scale(1); opacity: 1; }
+        50% { transform: scale(1.1); opacity: 0.8; }
+    }
+    .accuracy-circle {
+        fill: #4f46e5;
+        fill-opacity: 0.1;
+        stroke: #4f46e5;
+        stroke-width: 2;
+        stroke-opacity: 0.5;
+    }
+    .leaflet-popup-content-wrapper {
+        border-radius: 0.5rem;
+    }
+    .dark .leaflet-popup-content-wrapper {
+        background: #1f2937;
+        color: white;
+    }
+    .dark .leaflet-popup-tip {
+        background: #1f2937;
+    }
+    .location-banner {
+        background: linear-gradient(90deg, #f59e0b, #d97706);
+        color: white;
+        padding: 12px 16px;
+        border-radius: 0.5rem;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 1rem;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div class="flex items-center justify-between">
+        <div>
+            <h1 class="text-2xl font-bold text-gray-900 dark:text-white">Device Location Map</h1>
+            <p class="text-sm text-gray-500 dark:text-gray-400">
+                {% if map_enabled %}
+                Device positions estimated via signal strength bilateration
+                {% else %}
+                Map feature is disabled. Enable in settings.
+                {% endif %}
+            </p>
+        </div>
+        <div class="flex items-center space-x-4">
+            <button id="set-location-btn"
+                    class="inline-flex items-center px-3 py-2 border border-amber-500 shadow-sm text-sm font-medium rounded-md text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/30 hover:bg-amber-100 dark:hover:bg-amber-900/50">
+                <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path>
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                </svg>
+                Set Monitor Location
+            </button>
+            <button id="refresh-btn"
+                    class="inline-flex items-center px-3 py-2 border border-gray-300 dark:border-gray-600 shadow-sm text-sm font-medium rounded-md text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
+                <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                </svg>
+                Refresh
+            </button>
+            <div class="text-sm text-gray-500 dark:text-gray-400">
+                <span id="device-count">0</span> devices
+                <span class="mx-1">|</span>
+                <span id="monitor-count">0</span> monitors
+            </div>
+        </div>
+    </div>
+
+    <!-- Location Setting Mode Banner (hidden by default) -->
+    <div id="location-banner" class="location-banner hidden">
+        <div class="flex items-center">
+            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+            </svg>
+            <span><strong>Click on the map</strong> to set your monitor location. This will be saved and used for device positioning.</span>
+        </div>
+        <button id="cancel-location-btn" class="px-3 py-1 bg-white/20 hover:bg-white/30 rounded text-sm">
+            Cancel
+        </button>
+    </div>
+
+    <!-- Location Confirmation (hidden by default) -->
+    <div id="location-confirm" class="hidden bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
+        <div class="flex items-center justify-between">
+            <div class="flex items-center">
+                <svg class="w-5 h-5 text-green-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path>
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                </svg>
+                <div>
+                    <span class="font-medium text-green-800 dark:text-green-200">Selected Location: </span>
+                    <span id="selected-coords" class="text-green-700 dark:text-green-300"></span>
+                </div>
+            </div>
+            <div class="flex items-center space-x-2">
+                <button id="save-location-btn" class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-md">
+                    Save Location
+                </button>
+                <button id="cancel-save-btn" class="px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 text-sm font-medium rounded-md">
+                    Cancel
+                </button>
+            </div>
+        </div>
+    </div>
+
+    {% if not map_enabled %}
+    <div class="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
+        <div class="flex">
+            <svg class="h-5 w-5 text-yellow-400" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path>
+            </svg>
+            <div class="ml-3">
+                <h3 class="text-sm font-medium text-yellow-800 dark:text-yellow-200">Map Disabled</h3>
+                <p class="mt-1 text-sm text-yellow-700 dark:text-yellow-300">
+                    Set <code class="bg-yellow-100 dark:bg-yellow-800 px-1 rounded">WHOSHERE_MAP_ENABLED=true</code> and configure monitor coordinates to enable the map.
+                </p>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if monitors|length == 0 %}
+    <div id="no-monitor-notice" class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+        <div class="flex">
+            <svg class="h-5 w-5 text-blue-400" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"></path>
+            </svg>
+            <div class="ml-3">
+                <h3 class="text-sm font-medium text-blue-800 dark:text-blue-200">No Monitor Location Set</h3>
+                <p class="mt-1 text-sm text-blue-700 dark:text-blue-300">
+                    Click <strong>"Set Monitor Location"</strong> above, then click on the map to set your monitor's position.
+                </p>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Map container -->
+    <div class="bg-white dark:bg-gray-800 shadow rounded-lg overflow-hidden">
+        <div id="map"></div>
+    </div>
+
+    <!-- Legend -->
+    <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-4">
+        <h3 class="text-sm font-medium text-gray-900 dark:text-white mb-3">Legend</h3>
+        <div class="flex flex-wrap gap-6 text-sm">
+            <div class="flex items-center">
+                <span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-indigo-600 text-white text-xs font-bold mr-2">M</span>
+                <span class="text-gray-600 dark:text-gray-300">Monitor Station</span>
+            </div>
+            <div class="flex items-center">
+                <span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-white border-2 border-green-500 mr-2">
+                    <span class="text-lg">📱</span>
+                </span>
+                <span class="text-gray-600 dark:text-gray-300">Device (Present)</span>
+            </div>
+            <div class="flex items-center">
+                <span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-white border-2 border-gray-400 opacity-60 mr-2">
+                    <span class="text-lg">📱</span>
+                </span>
+                <span class="text-gray-600 dark:text-gray-300">Device (Away)</span>
+            </div>
+            <div class="flex items-center">
+                <span class="inline-block w-8 h-4 rounded border-2 border-indigo-500 bg-indigo-100 opacity-50 mr-2"></span>
+                <span class="text-gray-600 dark:text-gray-300">Position Accuracy</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Leaflet JS -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+
+<script>
+    // Initialize map
+    const initialLat = {{ center_lat }};
+    const initialLon = {{ center_lon }};
+    const mapEnabled = {{ 'true' if map_enabled else 'false' }};
+
+    // Create map
+    const map = L.map('map').setView(
+        initialLat !== 0 ? [initialLat, initialLon] : [37.7749, -122.4194],
+        initialLat !== 0 ? 19 : 2
+    );
+
+    // Clean street map (like Google Maps default view - no terrain)
+    const streetMap = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>',
+        subdomains: 'abcd',
+        maxZoom: 20
+    });
+
+    // Satellite imagery (optional)
+    const satellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+        attribution: 'Imagery &copy; Esri',
+        maxZoom: 20
+    });
+
+    // Default to street map view
+    streetMap.addTo(map);
+
+    // Add layer control to switch between views
+    const baseMaps = {
+        "Map": streetMap,
+        "Satellite": satellite
+    };
+    L.control.layers(baseMaps, {}, {collapsed: true}).addTo(map);
+
+    // Layer groups
+    const monitorLayer = L.layerGroup().addTo(map);
+    const deviceLayer = L.layerGroup().addTo(map);
+    const accuracyLayer = L.layerGroup().addTo(map);
+
+    // Location setting state
+    let isSettingLocation = false;
+    let pendingMarker = null;
+    let pendingLocation = null;
+
+    // Custom icon for monitors
+    function createMonitorIcon(name) {
+        return L.divIcon({
+            className: '',
+            html: `<div class="monitor-marker" style="width: 32px; height: 32px;">${name.charAt(0)}</div>`,
+            iconSize: [32, 32],
+            iconAnchor: [16, 16]
+        });
+    }
+
+    // Custom icon for pending location
+    function createPendingIcon() {
+        return L.divIcon({
+            className: '',
+            html: `<div class="pending-marker" style="width: 40px; height: 40px;">📍</div>`,
+            iconSize: [40, 40],
+            iconAnchor: [20, 20]
+        });
+    }
+
+    // Custom icon for devices
+    function createDeviceIcon(emoji, isPresent) {
+        const className = isPresent ? 'present' : 'away';
+        return L.divIcon({
+            className: '',
+            html: `<div class="device-marker ${className}" style="width: 36px; height: 36px;">${emoji}</div>`,
+            iconSize: [36, 36],
+            iconAnchor: [18, 18]
+        });
+    }
+
+    // Enter location setting mode
+    function enterLocationMode() {
+        isSettingLocation = true;
+        document.getElementById('map').classList.add('location-mode');
+        document.getElementById('location-banner').classList.remove('hidden');
+        document.getElementById('set-location-btn').classList.add('hidden');
+        document.getElementById('location-confirm').classList.add('hidden');
+
+        // Clear any pending marker
+        if (pendingMarker) {
+            map.removeLayer(pendingMarker);
+            pendingMarker = null;
+        }
+        pendingLocation = null;
+    }
+
+    // Exit location setting mode
+    function exitLocationMode() {
+        isSettingLocation = false;
+        document.getElementById('map').classList.remove('location-mode');
+        document.getElementById('location-banner').classList.add('hidden');
+        document.getElementById('set-location-btn').classList.remove('hidden');
+        document.getElementById('location-confirm').classList.add('hidden');
+
+        // Clear pending marker
+        if (pendingMarker) {
+            map.removeLayer(pendingMarker);
+            pendingMarker = null;
+        }
+        pendingLocation = null;
+    }
+
+    // Handle map click for location setting
+    map.on('click', function(e) {
+        if (!isSettingLocation) return;
+
+        const lat = e.latlng.lat;
+        const lon = e.latlng.lng;
+
+        // Remove existing pending marker
+        if (pendingMarker) {
+            map.removeLayer(pendingMarker);
+        }
+
+        // Add new pending marker
+        pendingMarker = L.marker([lat, lon], {
+            icon: createPendingIcon()
+        }).addTo(map);
+
+        pendingLocation = { lat, lon };
+
+        // Show confirmation UI
+        document.getElementById('location-banner').classList.add('hidden');
+        document.getElementById('location-confirm').classList.remove('hidden');
+        document.getElementById('selected-coords').textContent = `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
+    });
+
+    // Save location
+    async function saveLocation() {
+        if (!pendingLocation) return;
+
+        const saveBtn = document.getElementById('save-location-btn');
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Saving...';
+
+        try {
+            // Update settings via API
+            const response = await fetch('/api/settings', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    monitor_latitude: pendingLocation.lat,
+                    monitor_longitude: pendingLocation.lon
+                })
+            });
+
+            if (response.ok) {
+                // Also trigger monitor setup to create/update the local monitor
+                await fetch('/api/monitors/setup-local?auto_detect=false', {
+                    method: 'POST'
+                });
+
+                // Exit location mode and refresh map
+                exitLocationMode();
+                loadMapData();
+
+                // Hide the "no monitor" notice if visible
+                const notice = document.getElementById('no-monitor-notice');
+                if (notice) notice.classList.add('hidden');
+
+                // Show success message
+                alert('Monitor location saved successfully!');
+            } else {
+                const data = await response.json();
+                alert('Failed to save location: ' + (data.detail || 'Unknown error'));
+            }
+        } catch (err) {
+            alert('Error saving location: ' + err.message);
+        }
+
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save Location';
+    }
+
+    // Event listeners
+    document.getElementById('set-location-btn').addEventListener('click', enterLocationMode);
+    document.getElementById('cancel-location-btn').addEventListener('click', exitLocationMode);
+    document.getElementById('cancel-save-btn').addEventListener('click', exitLocationMode);
+    document.getElementById('save-location-btn').addEventListener('click', saveLocation);
+
+    // Load map data
+    async function loadMapData() {
+        try {
+            const response = await fetch('/api/map/data');
+            const data = await response.json();
+
+            // Clear layers
+            monitorLayer.clearLayers();
+            deviceLayer.clearLayers();
+            accuracyLayer.clearLayers();
+
+            // Update counts
+            document.getElementById('device-count').textContent = data.devices.length;
+            document.getElementById('monitor-count').textContent = data.monitors.length;
+
+            // Add monitors
+            data.monitors.forEach(monitor => {
+                const marker = L.marker([monitor.latitude, monitor.longitude], {
+                    icon: createMonitorIcon(monitor.name)
+                });
+                marker.bindPopup(`
+                    <div class="p-2">
+                        <div class="font-bold">${monitor.name}</div>
+                        <div class="text-sm text-gray-500">Monitor Station</div>
+                        <div class="text-xs mt-1">
+                            ${monitor.is_online ? '<span class="text-green-600">Online</span>' : '<span class="text-red-600">Offline</span>'}
+                        </div>
+                        <div class="text-xs mt-1 text-gray-400">
+                            ${monitor.latitude.toFixed(6)}, ${monitor.longitude.toFixed(6)}
+                        </div>
+                    </div>
+                `);
+                monitorLayer.addLayer(marker);
+            });
+
+            // Add devices
+            data.devices.forEach(device => {
+                if (device.latitude && device.longitude) {
+                    // Add accuracy circle
+                    if (device.accuracy && device.accuracy > 0) {
+                        const circle = L.circle([device.latitude, device.longitude], {
+                            radius: device.accuracy,
+                            className: 'accuracy-circle',
+                            interactive: false
+                        });
+                        accuracyLayer.addLayer(circle);
+                    }
+
+                    // Add device marker
+                    const marker = L.marker([device.latitude, device.longitude], {
+                        icon: createDeviceIcon(device.device_icon, device.is_present)
+                    });
+                    marker.bindPopup(`
+                        <div class="p-2 min-w-48">
+                            <div class="font-bold">${device.display_name}</div>
+                            <div class="text-sm text-gray-500">${device.device_type || 'Unknown Type'}</div>
+                            <div class="text-xs mt-2 space-y-1">
+                                <div>Signal: ${device.signal_strength ? device.signal_strength + ' dBm' : 'N/A'}</div>
+                                <div>Accuracy: ${device.accuracy ? '~' + Math.round(device.accuracy) + 'm' : 'N/A'}</div>
+                                <div>Status: ${device.is_present ? '<span class="text-green-600">Present</span>' : '<span class="text-gray-500">Away</span>'}</div>
+                            </div>
+                            <a href="/device/${device.id}" class="block mt-2 text-xs text-indigo-600 hover:text-indigo-800">View Details →</a>
+                        </div>
+                    `);
+                    deviceLayer.addLayer(marker);
+                }
+            });
+
+            // Fit bounds if we have markers
+            const allMarkers = [...monitorLayer.getLayers(), ...deviceLayer.getLayers()];
+            if (allMarkers.length > 0) {
+                const group = L.featureGroup(allMarkers);
+                map.fitBounds(group.getBounds().pad(0.1));
+            }
+
+        } catch (error) {
+            console.error('Failed to load map data:', error);
+        }
+    }
+
+    // Initial load
+    loadMapData();
+
+    // Refresh button
+    document.getElementById('refresh-btn').addEventListener('click', loadMapData);
+
+    // Auto-refresh every 30 seconds
+    setInterval(loadMapData, 30000);
+</script>
+{% endblock %}

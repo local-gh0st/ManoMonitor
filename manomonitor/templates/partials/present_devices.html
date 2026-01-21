@@ -1,0 +1,49 @@
+{% if assets %}
+<ul class="divide-y divide-gray-200 dark:divide-gray-700">
+    {% for asset in assets %}
+    <li class="px-4 py-4 sm:px-6">
+        <div class="flex items-center justify-between">
+            <div class="flex items-center min-w-0">
+                <div class="flex-shrink-0">
+                    <span class="inline-flex items-center justify-center h-10 w-10 rounded-full text-xl
+                        {% if asset.is_present %}bg-green-100 dark:bg-green-900{% else %}bg-gray-100 dark:bg-gray-700{% endif %}"
+                          title="{{ asset.device_type_display }}">
+                        {{ asset.device_icon }}
+                    </span>
+                </div>
+                <div class="ml-4 min-w-0">
+                    <a href="/device/{{ asset.id }}" class="text-sm font-medium text-gray-900 dark:text-white hover:text-primary-600 dark:hover:text-primary-400 truncate block">
+                        {{ asset.display_name }}
+                    </a>
+                    <p class="text-xs text-gray-500 dark:text-gray-400 truncate">
+                        {{ asset.vendor_display }} &middot; {{ asset.device_type_display }}
+                    </p>
+                </div>
+            </div>
+            <div class="flex items-center space-x-4">
+                <!-- Signal strength -->
+                {% if asset.last_signal_strength %}
+                <span class="text-sm
+                    {% if asset.last_signal_strength >= -50 %}signal-excellent
+                    {% elif asset.last_signal_strength >= -60 %}signal-good
+                    {% elif asset.last_signal_strength >= -70 %}signal-fair
+                    {% else %}signal-weak{% endif %}">
+                    {{ asset.last_signal_strength }} dBm
+                </span>
+                {% endif %}
+
+                <!-- Last seen -->
+                <span class="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                    {{ asset.minutes_since_seen | relative_time }}
+                </span>
+            </div>
+        </div>
+    </li>
+    {% endfor %}
+</ul>
+{% else %}
+<div class="px-4 py-8 text-center text-gray-500 dark:text-gray-400">
+    <p>No devices currently present</p>
+    <p class="text-sm mt-1">Devices will appear here when detected</p>
+</div>
+{% endif %}
