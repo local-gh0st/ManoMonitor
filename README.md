@@ -26,6 +26,8 @@ WiFi-based device tracking and proximity detection for your home network. Tracks
 ```bash
 git clone https://github.com/local-gh0st/ManoMonitor.git
 cd ManoMonitor
+python3 -m venv venv
+source venv/bin/activate
 pip install -e .
 cp .env.example .env
 # Edit .env with your settings
