@@ -427,22 +427,16 @@ def monitor_register(
 
         # Get API key from primary first
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                # Try to get primary's monitor info
-                response = await client.get(f"{primary_url}/api/monitors")
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                # Fetch API key from primary's dedicated endpoint
+                response = await client.get(f"{primary_url}/api/monitors/local-api-key")
                 response.raise_for_status()
-                monitors = response.json()
+                data = response.json()
 
-                # Find local/primary monitor
-                primary_monitor = next((m for m in monitors if m.get("is_local")), None)
-                if not primary_monitor:
-                    console.print("[red]Could not find primary monitor's API key[/red]")
-                    console.print("Run 'manomonitor monitor-info' on the primary to get the API key")
-                    return
-
-                api_key = primary_monitor.get("api_key")
+                api_key = data.get("api_key")
                 if not api_key:
-                    console.print("[red]Primary monitor has no API key[/red]")
+                    console.print("[red]Primary monitor has no API key configured[/red]")
+                    console.print("Run 'manomonitor setup' on the primary to initialize it")
                     return
 
                 # Register this monitor
