@@ -74,22 +74,26 @@ else
     # Use the safety checker to find a safe interface
     SAFE_INTERFACE=$(python3 "$SCRIPT_DIR/check_wifi_safety.py" --suggest 2>/dev/null || echo "")
 
-if [ -n "$SAFE_INTERFACE" ]; then
-    echo "✓ Found safe WiFi interface: $SAFE_INTERFACE"
-    WIFI_INTERFACE="$SAFE_INTERFACE"
-else
-    # Fallback to manual detection
-    WIFI_INTERFACE=$(iw dev 2>/dev/null | grep Interface | head -1 | awk '{print $2}')
-
-    if [ -z "$WIFI_INTERFACE" ]; then
-        echo "⚠️  Could not auto-detect WiFi interface"
-        read -p "Enter WiFi interface manually (e.g., wlan1): " WIFI_INTERFACE
+    if [ -n "$SAFE_INTERFACE" ]; then
+        echo "✓ Found safe WiFi interface: $SAFE_INTERFACE"
+        WIFI_INTERFACE="$SAFE_INTERFACE"
+    else
+        echo "⚠️  No safe WiFi interface found automatically"
+        echo ""
+        echo "Available interfaces:"
+        python3 "$SCRIPT_DIR/check_wifi_safety.py" --list 2>/dev/null || true
+        echo ""
+        echo "Options:"
+        echo "  1. Enter interface name manually (if you know it's safe)"
+        echo "  2. Run with --force flag to bypass safety checks"
+        echo "  3. Cancel and connect via Ethernet or add USB WiFi adapter"
+        echo ""
+        read -p "Enter WiFi interface to use (or press Ctrl+C to cancel): " WIFI_INTERFACE
         if [ -z "$WIFI_INTERFACE" ]; then
             echo "❌ WiFi interface required"
             exit 1
         fi
-    else
-        echo "⚠️  Found interface: $WIFI_INTERFACE (safety unknown)"
+        echo "⚠️  Using interface: $WIFI_INTERFACE (will verify safety next)"
     fi
 fi
 
