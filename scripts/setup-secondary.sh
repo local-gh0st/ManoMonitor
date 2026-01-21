@@ -15,18 +15,62 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
 # Auto-detect WiFi interface
 echo "🔍 Auto-detecting WiFi interface..."
-WIFI_INTERFACE=$(iw dev 2>/dev/null | grep Interface | head -1 | awk '{print $2}')
 
-if [ -z "$WIFI_INTERFACE" ]; then
-    echo "⚠️  Could not auto-detect WiFi interface"
-    read -p "Enter WiFi interface manually (e.g., wlan1): " WIFI_INTERFACE
+# Use the safety checker to find a safe interface
+SAFE_INTERFACE=$(python3 "$SCRIPT_DIR/check_wifi_safety.py" --suggest 2>/dev/null || echo "")
+
+if [ -n "$SAFE_INTERFACE" ]; then
+    echo "✓ Found safe WiFi interface: $SAFE_INTERFACE"
+    WIFI_INTERFACE="$SAFE_INTERFACE"
+else
+    # Fallback to manual detection
+    WIFI_INTERFACE=$(iw dev 2>/dev/null | grep Interface | head -1 | awk '{print $2}')
+
     if [ -z "$WIFI_INTERFACE" ]; then
-        echo "❌ WiFi interface required"
+        echo "⚠️  Could not auto-detect WiFi interface"
+        read -p "Enter WiFi interface manually (e.g., wlan1): " WIFI_INTERFACE
+        if [ -z "$WIFI_INTERFACE" ]; then
+            echo "❌ WiFi interface required"
+            exit 1
+        fi
+    else
+        echo "⚠️  Found interface: $WIFI_INTERFACE (safety unknown)"
+    fi
+fi
+
+# Check if the selected interface is safe
+echo ""
+echo "🔒 Checking interface safety..."
+python3 "$SCRIPT_DIR/check_wifi_safety.py" "$WIFI_INTERFACE" 2>&1
+SAFETY_CODE=$?
+
+if [ $SAFETY_CODE -eq 1 ]; then
+    echo ""
+    echo "❌ ERROR: Interface $WIFI_INTERFACE is NOT SAFE to use!"
+    echo "This is your only network connection. Using it will disconnect you."
+    echo ""
+    echo "Solutions:"
+    echo "  1. Use a USB WiFi adapter for monitoring"
+    echo "  2. Connect via Ethernet cable first"
+    echo "  3. Use a different WiFi interface"
+    echo ""
+    read -p "Do you want to continue anyway? (type 'YES' to confirm): " FORCE_CONFIRM
+    if [ "$FORCE_CONFIRM" != "YES" ]; then
+        echo "Setup cancelled for safety"
         exit 1
     fi
-else
-    echo "✓ Found WiFi interface: $WIFI_INTERFACE"
+    echo "⚠️  Proceeding at your own risk..."
+elif [ $SAFETY_CODE -eq 2 ]; then
+    echo ""
+    echo "⚠️  WARNING: Interface $WIFI_INTERFACE is currently connected"
+    read -p "Continue? You may lose connectivity. (y/n): " CONTINUE_WARNED
+    if [ "$CONTINUE_WARNED" != "y" ]; then
+        echo "Setup cancelled"
+        exit 1
+    fi
 fi
+
+echo "✓ Interface safety check passed"
 
 # Use hostname as default monitor name
 DEFAULT_NAME=$(hostname)

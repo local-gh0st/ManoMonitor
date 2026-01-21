@@ -53,6 +53,8 @@ def run(
 @app.command()
 def check():
     """Check system dependencies and configuration."""
+    import subprocess
+    from pathlib import Path
     from manomonitor.capture.monitor import ProbeCapture
 
     console.print("[bold]Checking ManoMonitor dependencies...[/bold]\n")
@@ -71,13 +73,45 @@ def check():
     else:
         console.print(f"[red]✗[/red] {msg}")
 
+    # Check interface safety for monitor mode
+    console.print("\n[bold]Interface Safety Check:[/bold]")
+    script_path = Path(__file__).parent.parent.parent / "scripts" / "check_wifi_safety.py"
+    if script_path.exists():
+        try:
+            result = subprocess.run(
+                [sys.executable, str(script_path), settings.wifi_interface],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.stdout:
+                for line in result.stdout.split('\n'):
+                    if line.strip():
+                        console.print(line)
+
+            if result.returncode == 1:
+                console.print("\n[red]✗[/red] Interface is NOT SAFE for monitor mode!")
+                console.print("[yellow]⚠️  Using this interface will disconnect your network[/yellow]")
+                console.print("\n[bold]Recommendations:[/bold]")
+                console.print("  • Use a USB WiFi adapter for monitoring")
+                console.print("  • Connect via Ethernet cable")
+                console.print("  • Disable WiFi capture: MANOMONITOR_CAPTURE_ENABLED=false")
+            elif result.returncode == 2:
+                console.print("\n[yellow]⚠️  Interface is currently connected - use with caution[/yellow]")
+            else:
+                console.print("\n[green]✓[/green] Interface is safe for monitor mode")
+        except Exception as e:
+            console.print(f"[yellow]![/yellow] Could not check interface safety: {e}")
+    else:
+        console.print("[yellow]![/yellow] Safety check script not found")
+
     # Check database directory
     db_path = settings.get_database_path()
     if db_path:
         if db_path.parent.exists():
-            console.print(f"[green]✓[/green] Database directory exists: {db_path.parent}")
+            console.print(f"\n[green]✓[/green] Database directory exists: {db_path.parent}")
         else:
-            console.print(f"[yellow]![/yellow] Database directory will be created: {db_path.parent}")
+            console.print(f"\n[yellow]![/yellow] Database directory will be created: {db_path.parent}")
 
     # Check notification configuration
     console.print("\n[bold]Notification Configuration:[/bold]")
