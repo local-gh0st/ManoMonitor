@@ -180,6 +180,35 @@ async def notifications_page(
     )
 
 
+@router.get("/monitors", response_class=HTMLResponse)
+async def monitors_page(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Monitors management page."""
+    from sqlalchemy import select
+    from manomonitor.database.models import Monitor
+
+    # Get all monitors
+    result = await db.execute(select(Monitor).where(Monitor.is_active == True))
+    monitors = result.scalars().all()
+
+    # Separate local and remote monitors
+    local_monitor = next((m for m in monitors if m.is_local), None)
+    remote_monitors = [m for m in monitors if not m.is_local]
+
+    return templates.TemplateResponse(
+        "monitors.html",
+        {
+            "request": request,
+            "local_monitor": local_monitor,
+            "remote_monitors": remote_monitors,
+            "total_monitors": len(monitors),
+            "settings": settings,
+        },
+    )
+
+
 @router.get("/map", response_class=HTMLResponse)
 async def map_page(
     request: Request,

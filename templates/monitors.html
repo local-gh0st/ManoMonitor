@@ -1,0 +1,241 @@
+{% extends "base.html" %}
+
+{% block title %}Monitors - ManoMonitor{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <!-- Page Header -->
+    <div class="mb-8">
+        <h1 class="text-3xl font-bold text-gray-900 dark:text-white">Monitor Management</h1>
+        <p class="mt-2 text-sm text-gray-600 dark:text-gray-400">
+            View and manage primary and secondary monitors in your network
+        </p>
+    </div>
+
+    <!-- Stats Overview -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <div class="bg-white dark:bg-gray-800 overflow-hidden shadow rounded-lg">
+            <div class="px-4 py-5 sm:p-6">
+                <dt class="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">
+                    Total Monitors
+                </dt>
+                <dd class="mt-1 text-3xl font-semibold text-gray-900 dark:text-white">
+                    {{ total_monitors }}
+                </dd>
+            </div>
+        </div>
+
+        <div class="bg-white dark:bg-gray-800 overflow-hidden shadow rounded-lg">
+            <div class="px-4 py-5 sm:p-6">
+                <dt class="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">
+                    Active Secondary Monitors
+                </dt>
+                <dd class="mt-1 text-3xl font-semibold text-gray-900 dark:text-white">
+                    {{ remote_monitors|length }}
+                </dd>
+            </div>
+        </div>
+
+        <div class="bg-white dark:bg-gray-800 overflow-hidden shadow rounded-lg">
+            <div class="px-4 py-5 sm:p-6">
+                <dt class="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">
+                    Multi-Monitor Status
+                </dt>
+                <dd class="mt-1 text-3xl font-semibold {% if remote_monitors %}text-green-600{% else %}text-gray-400{% endif %}">
+                    {% if remote_monitors %}Active{% else %}Inactive{% endif %}
+                </dd>
+            </div>
+        </div>
+    </div>
+
+    <!-- Primary Monitor Section -->
+    {% if local_monitor %}
+    <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6 mb-8">
+        <div class="flex items-center justify-between mb-4">
+            <h2 class="text-xl font-semibold text-gray-900 dark:text-white">
+                🖥️ Primary Monitor (This Device)
+            </h2>
+            <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
+                <span class="w-2 h-2 mr-2 bg-green-600 rounded-full pulse-green"></span>
+                Online
+            </span>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Monitor Details</h3>
+                <dl class="space-y-2">
+                    <div>
+                        <dt class="text-sm text-gray-600 dark:text-gray-400 inline">Name:</dt>
+                        <dd class="text-sm text-gray-900 dark:text-white inline ml-2 font-medium">{{ local_monitor.name }}</dd>
+                    </div>
+                    <div>
+                        <dt class="text-sm text-gray-600 dark:text-gray-400 inline">Location:</dt>
+                        <dd class="text-sm text-gray-900 dark:text-white inline ml-2">
+                            {{ "%.6f"|format(local_monitor.latitude) }}, {{ "%.6f"|format(local_monitor.longitude) }}
+                        </dd>
+                    </div>
+                    <div>
+                        <dt class="text-sm text-gray-600 dark:text-gray-400 inline">Last Seen:</dt>
+                        <dd class="text-sm text-gray-900 dark:text-white inline ml-2">{{ local_monitor.last_seen|datetime }}</dd>
+                    </div>
+                </dl>
+            </div>
+
+            <div>
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">API Key</h3>
+                <div class="bg-gray-50 dark:bg-gray-900 p-4 rounded border border-gray-200 dark:border-gray-700">
+                    <p class="text-xs text-gray-600 dark:text-gray-400 mb-2">Use this key to register secondary monitors:</p>
+                    <div class="flex items-center">
+                        <code class="text-sm font-mono text-gray-900 dark:text-white break-all flex-1">{{ local_monitor.api_key }}</code>
+                        <button
+                            onclick="navigator.clipboard.writeText('{{ local_monitor.api_key }}')"
+                            class="ml-2 p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                            title="Copy to clipboard"
+                        >
+                            📋
+                        </button>
+                    </div>
+                </div>
+                <p class="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                    Run on secondary: <code class="bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded">./scripts/setup-secondary.sh</code>
+                </p>
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <div class="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-700 rounded-lg p-6 mb-8">
+        <div class="flex">
+            <div class="flex-shrink-0">
+                <span class="text-2xl">⚠️</span>
+            </div>
+            <div class="ml-3">
+                <h3 class="text-sm font-medium text-yellow-800 dark:text-yellow-200">
+                    Primary Monitor Not Configured
+                </h3>
+                <div class="mt-2 text-sm text-yellow-700 dark:text-yellow-300">
+                    <p>The local monitor has not been set up yet. Run <code class="bg-yellow-100 dark:bg-yellow-800 px-2 py-1 rounded">manomonitor setup</code> to initialize.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Secondary Monitors Section -->
+    <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
+        <div class="flex items-center justify-between mb-4">
+            <h2 class="text-xl font-semibold text-gray-900 dark:text-white">
+                📡 Secondary Monitors
+            </h2>
+            {% if remote_monitors %}
+            <span class="text-sm text-gray-500 dark:text-gray-400">
+                {{ remote_monitors|length }} registered
+            </span>
+            {% endif %}
+        </div>
+
+        {% if remote_monitors %}
+        <div class="space-y-4">
+            {% for monitor in remote_monitors %}
+            <div class="border border-gray-200 dark:border-gray-700 rounded-lg p-4 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition">
+                <div class="flex items-start justify-between">
+                    <div class="flex-1">
+                        <div class="flex items-center">
+                            <h3 class="text-lg font-medium text-gray-900 dark:text-white">{{ monitor.name }}</h3>
+                            {% if monitor.is_online %}
+                            <span class="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
+                                <span class="w-1.5 h-1.5 mr-1.5 bg-green-600 rounded-full pulse-green"></span>
+                                Online
+                            </span>
+                            {% else %}
+                            <span class="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300">
+                                Offline
+                            </span>
+                            {% endif %}
+                        </div>
+
+                        <dl class="mt-2 grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                            <div>
+                                <dt class="text-gray-500 dark:text-gray-400">Location</dt>
+                                <dd class="text-gray-900 dark:text-white font-mono text-xs">
+                                    {{ "%.6f"|format(monitor.latitude) }}, {{ "%.6f"|format(monitor.longitude) }}
+                                </dd>
+                            </div>
+                            <div>
+                                <dt class="text-gray-500 dark:text-gray-400">Last Seen</dt>
+                                <dd class="text-gray-900 dark:text-white">
+                                    {{ monitor.last_seen|datetime }}
+                                </dd>
+                            </div>
+                            <div>
+                                <dt class="text-gray-500 dark:text-gray-400">Monitor ID</dt>
+                                <dd class="text-gray-900 dark:text-white font-mono">#{{ monitor.id }}</dd>
+                            </div>
+                        </dl>
+                    </div>
+
+                    <div class="ml-4">
+                        <a href="/map" class="text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300 text-sm">
+                            View on Map →
+                        </a>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="text-center py-12">
+            <span class="text-6xl mb-4 block">📡</span>
+            <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-2">
+                No Secondary Monitors Registered
+            </h3>
+            <p class="text-sm text-gray-500 dark:text-gray-400 mb-6 max-w-md mx-auto">
+                Secondary monitors allow you to track device positions using signal triangulation. Add more monitors to enable multi-point tracking.
+            </p>
+
+            <div class="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-6 max-w-2xl mx-auto text-left">
+                <h4 class="text-sm font-semibold text-gray-900 dark:text-white mb-3">
+                    📚 How to Add a Secondary Monitor
+                </h4>
+                <ol class="space-y-3 text-sm text-gray-700 dark:text-gray-300">
+                    <li class="flex">
+                        <span class="font-bold mr-2">1.</span>
+                        <span>On another device (Raspberry Pi, laptop, etc.), clone the repo and install dependencies</span>
+                    </li>
+                    <li class="flex">
+                        <span class="font-bold mr-2">2.</span>
+                        <span>Run: <code class="bg-gray-200 dark:bg-gray-800 px-2 py-0.5 rounded font-mono text-xs">./scripts/setup-secondary.sh</code></span>
+                    </li>
+                    <li class="flex">
+                        <span class="font-bold mr-2">3.</span>
+                        <span>Enter this primary monitor's URL when prompted</span>
+                    </li>
+                    <li class="flex">
+                        <span class="font-bold mr-2">4.</span>
+                        <span>The API key will be auto-fetched and the monitor will register automatically</span>
+                    </li>
+                </ol>
+
+                {% if local_monitor %}
+                <div class="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                    <p class="text-xs text-gray-500 dark:text-gray-400 mb-2">Primary Monitor URL (use this on secondary):</p>
+                    <code class="block bg-white dark:bg-gray-800 px-3 py-2 rounded border border-gray-300 dark:border-gray-600 font-mono text-xs">
+                        http://{{ request.headers.get('host', 'localhost:8080') }}
+                    </code>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Setup Instructions Link -->
+    <div class="mt-6 text-center">
+        <a href="https://github.com/local-gh0st/ManoMonitor/blob/main/MULTI_MONITOR_SETUP.md"
+           target="_blank"
+           class="text-sm text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300">
+            📖 View Full Multi-Monitor Setup Guide →
+        </a>
+    </div>
+</div>
+{% endblock %}
