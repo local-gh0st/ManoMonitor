@@ -287,14 +287,23 @@ else
     echo "MANOMONITOR_PRIMARY_URL=$PRIMARY_URL" >> .env
 fi
 
-# Register monitor
+# Register monitor with primary
 echo "📝 Registering monitor with primary..."
-./venv/bin/manomonitor monitor-register "$PRIMARY_URL" \
-    --name "$MONITOR_NAME" \
-    --lat "$LATITUDE" \
-    --lon "$LONGITUDE" 2>/dev/null || echo "⚠️  Registration will occur on first reporter run"
+if [ -n "$API_KEY" ]; then
+    # Use the API key we already fetched to register
+    REGISTER_RESPONSE=$(curl -sf -X POST "$PRIMARY_URL/api/monitors/register" \
+        -H "Content-Type: application/json" \
+        -d "{\"name\":\"$MONITOR_NAME\",\"latitude\":$LATITUDE,\"longitude\":$LONGITUDE,\"api_key\":\"$API_KEY\"}" \
+        2>/dev/null)
 
-echo "✓ Registered with primary"
+    if [ $? -eq 0 ]; then
+        echo "✓ Registered with primary"
+    else
+        echo "⚠️  Registration will occur on first reporter run"
+    fi
+else
+    echo "⚠️  No API key - registration will occur on first reporter run"
+fi
 
 # Step 4: Install systemd services
 echo
