@@ -117,6 +117,22 @@ class Settings(BaseSettings):
         description="Home Assistant notification service to call",
     )
 
+    # MAC Address Vendor Lookup (enhanced identification)
+    macaddress_io_api_key: str = Field(
+        default="",
+        description="macaddress.io API key for enhanced vendor lookup with device details (optional)",
+    )
+    maclookup_app_api_key: str = Field(
+        default="",
+        description="maclookup.app API key for enhanced vendor lookup (optional)",
+    )
+    vendor_cache_days: int = Field(
+        default=90,
+        description="Days to cache vendor lookup results",
+        ge=1,
+        le=365,
+    )
+
     # Data Retention
     log_retention_days: int = Field(
         default=30,

@@ -29,6 +29,8 @@ class Asset(Base):
     # Vendor/manufacturer info (from OUI lookup)
     vendor: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     device_type: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    vendor_country: Mapped[Optional[str]] = mapped_column(String(2), nullable=True)  # ISO country code
+    is_virtual_machine: Mapped[bool] = mapped_column(Boolean, default=False)
 
     # Notification settings
     notify_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
