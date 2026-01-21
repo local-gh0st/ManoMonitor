@@ -57,9 +57,6 @@ On each device (primary and all secondaries):
 git clone https://github.com/local-gh0st/ManoMonitor.git
 cd ManoMonitor
 
-# Switch to the enhanced branch
-git checkout claude/review-manomonitor-PocQ4
-
 # Create virtual environment
 python3 -m venv venv
 source venv/bin/activate
@@ -516,7 +513,6 @@ Should show readings from multiple monitors for each device.
 **Primary Setup:**
 ```bash
 git clone https://github.com/local-gh0st/ManoMonitor.git && cd ManoMonitor
-git checkout claude/review-manomonitor-PocQ4
 python3 -m venv venv && source venv/bin/activate && pip install -e .
 cp .env.example .env
 # Edit .env with primary config
