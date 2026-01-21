@@ -276,7 +276,7 @@ echo "🔑 Step 3: Registering with primary and retrieving API key..."
 
 # The reporter script will auto-fetch the API key, but we can also save it now
 source venv/bin/activate
-API_KEY=$(curl -sf "$PRIMARY_URL/api/monitors" | grep -o '"api_key":"[^"]*"' | head -1 | cut -d'"' -f4 || echo "")
+API_KEY=$(curl -sf "$PRIMARY_URL/api/monitors/local-api-key" | python3 -c "import sys, json; print(json.load(sys.stdin).get('api_key', ''))" 2>/dev/null || echo "")
 
 if [ -n "$API_KEY" ]; then
     echo "✓ Retrieved API key: ${API_KEY:0:16}..."

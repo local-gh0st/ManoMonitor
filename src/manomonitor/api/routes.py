@@ -632,6 +632,31 @@ async def list_monitors(
     ]
 
 
+@router.get("/monitors/local-api-key")
+async def get_local_monitor_api_key(
+    db: AsyncSession = Depends(get_db),
+):
+    """Get the API key for the local monitor (for secondary monitor setup)."""
+    from sqlalchemy import select
+    from manomonitor.database.models import Monitor
+
+    result = await db.execute(select(Monitor).where(Monitor.is_local == True))
+    local_monitor = result.scalar_one_or_none()
+
+    if not local_monitor or not local_monitor.api_key:
+        raise HTTPException(
+            status_code=404,
+            detail="Local monitor not configured. Run setup first."
+        )
+
+    return {
+        "api_key": local_monitor.api_key,
+        "monitor_name": local_monitor.name,
+        "latitude": local_monitor.latitude,
+        "longitude": local_monitor.longitude,
+    }
+
+
 @router.post("/monitors/register", response_model=MonitorResponse)
 async def register_monitor(
     data: MonitorRegisterRequest,
