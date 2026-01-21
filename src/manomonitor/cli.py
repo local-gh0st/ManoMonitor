@@ -260,5 +260,188 @@ def config():
     console.print(table)
 
 
+@app.command()
+def monitor_info():
+    """Show this monitor's information and API key."""
+
+    async def _show():
+        from manomonitor.database.connection import get_db_context, init_db
+        from manomonitor.database.models import Monitor
+        from sqlalchemy import select
+
+        await init_db()
+
+        async with get_db_context() as db:
+            # Get local monitor
+            stmt = select(Monitor).where(Monitor.is_local == True)
+            result = await db.execute(stmt)
+            monitor = result.scalar_one_or_none()
+
+            if not monitor:
+                console.print("[yellow]Local monitor not initialized yet.[/yellow]")
+                console.print("Start the server with 'manomonitor run' first.")
+                return
+
+            console.print("\n[bold]This Monitor's Information:[/bold]\n")
+
+            table = Table(show_header=False, box=None)
+            table.add_column("Key", style="cyan")
+            table.add_column("Value")
+
+            table.add_row("Name", monitor.name)
+            table.add_row("Location", f"{monitor.latitude:.6f}, {monitor.longitude:.6f}")
+            table.add_row("API Key", f"[bold green]{monitor.api_key}[/bold green]")
+            table.add_row("Status", "[green]Local[/green]" if monitor.is_local else "Remote")
+            table.add_row("Created", monitor.created_at.strftime("%Y-%m-%d %H:%M:%S"))
+
+            console.print(table)
+            console.print("\n[bold]Setup Instructions:[/bold]")
+            console.print("1. Share the API key with secondary monitors")
+            console.print("2. Secondary monitors use this to register and report readings")
+            console.print(f"3. Registration URL: http://<this-ip>:{settings.port}/api/monitors/register\n")
+
+    asyncio.run(_show())
+
+
+@app.command()
+def monitor_list():
+    """List all registered monitors."""
+
+    async def _list():
+        from manomonitor.database.connection import get_db_context, init_db
+        from manomonitor.database.models import Monitor
+        from sqlalchemy import select
+
+        await init_db()
+
+        async with get_db_context() as db:
+            stmt = select(Monitor).order_by(Monitor.is_local.desc(), Monitor.name)
+            result = await db.execute(stmt)
+            monitors = result.scalars().all()
+
+            if not monitors:
+                console.print("No monitors registered yet")
+                return
+
+            table = Table(title="Registered Monitors")
+            table.add_column("Name", style="cyan")
+            table.add_column("Location")
+            table.add_column("Status")
+            table.add_column("Type")
+            table.add_column("Last Seen")
+
+            for monitor in monitors:
+                # Location
+                location = f"{monitor.latitude:.4f}, {monitor.longitude:.4f}"
+
+                # Status
+                if monitor.is_local:
+                    status = "[green]●[/green] Local"
+                elif monitor.is_online:
+                    status = "[green]●[/green] Online"
+                else:
+                    status = "[dim]●[/dim] Offline"
+
+                # Type
+                mon_type = "[bold]Primary[/bold]" if monitor.is_local else "Secondary"
+
+                # Last seen
+                if monitor.is_local:
+                    last_seen = "N/A"
+                elif monitor.last_seen:
+                    delta = (asyncio.get_event_loop().time() - monitor.last_seen.timestamp()) / 60
+                    last_seen = f"{int(delta)}m ago"
+                else:
+                    last_seen = "Never"
+
+                table.add_row(
+                    monitor.name,
+                    location,
+                    status,
+                    mon_type,
+                    last_seen,
+                )
+
+            console.print(table)
+            console.print(f"\n[dim]Total: {len(monitors)} monitors ({sum(1 for m in monitors if m.is_online)} online)[/dim]")
+
+    asyncio.run(_list())
+
+
+@app.command()
+def monitor_register(
+    primary_url: str = typer.Argument(..., help="Primary monitor URL (e.g., http://192.168.1.100:8080)"),
+    name: str = typer.Option(settings.monitor_name, "--name", "-n", help="Name for this monitor"),
+    latitude: Optional[float] = typer.Option(None, "--lat", help="Monitor latitude"),
+    longitude: Optional[float] = typer.Option(None, "--lon", help="Monitor longitude"),
+):
+    """Register this monitor with a primary monitor."""
+
+    async def _register():
+        import httpx
+
+        # Get location
+        lat = latitude or settings.monitor_latitude
+        lon = longitude or settings.monitor_longitude
+
+        if lat == 0.0 or lon == 0.0:
+            console.print("[yellow]Warning: Monitor location is 0.0, 0.0[/yellow]")
+            console.print("Set location in .env or use --lat and --lon flags")
+            console.print("Example: --lat 37.7749 --lon -122.4194\n")
+
+        console.print(f"Registering monitor '{name}' with primary at {primary_url}...")
+
+        # Get API key from primary first
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                # Try to get primary's monitor info
+                response = await client.get(f"{primary_url}/api/monitors")
+                response.raise_for_status()
+                monitors = response.json()
+
+                # Find local/primary monitor
+                primary_monitor = next((m for m in monitors if m.get("is_local")), None)
+                if not primary_monitor:
+                    console.print("[red]Could not find primary monitor's API key[/red]")
+                    console.print("Run 'manomonitor monitor-info' on the primary to get the API key")
+                    return
+
+                api_key = primary_monitor.get("api_key")
+                if not api_key:
+                    console.print("[red]Primary monitor has no API key[/red]")
+                    return
+
+                # Register this monitor
+                payload = {
+                    "name": name,
+                    "latitude": lat,
+                    "longitude": lon,
+                    "api_key": api_key,
+                }
+
+                response = await client.post(
+                    f"{primary_url}/api/monitors/register",
+                    json=payload,
+                )
+                response.raise_for_status()
+                result = response.json()
+
+                console.print(f"[green]✓[/green] Successfully registered monitor '{name}'")
+                console.print(f"  Location: {lat:.6f}, {lon:.6f}")
+                console.print(f"  API Key: {api_key}")
+
+                # Save API key to settings
+                console.print("\n[bold]Next steps:[/bold]")
+                console.print(f"1. Add to .env: MANOMONITOR_MONITOR_API_KEY={api_key}")
+                console.print(f"2. Start reporter: python3 scripts/secondary_reporter.py --primary-url {primary_url} --api-key {api_key}")
+
+        except httpx.HTTPError as e:
+            console.print(f"[red]✗[/red] Failed to register: {e}")
+        except Exception as e:
+            console.print(f"[red]✗[/red] Error: {e}")
+
+    asyncio.run(_register())
+
+
 if __name__ == "__main__":
     app()

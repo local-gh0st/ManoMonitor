@@ -1,0 +1,17 @@
+[Unit]
+Description=ManoMonitor Secondary Reporter
+After=network.target manomonitor.service
+Requires=manomonitor.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/user/ManoMonitor
+Environment="MANOMONITOR_PRIMARY_URL=http://192.168.1.100:8080"
+Environment="MANOMONITOR_API_KEY=your-api-key-here"
+ExecStart=/home/user/ManoMonitor/venv/bin/python3 /home/user/ManoMonitor/scripts/secondary_reporter.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
