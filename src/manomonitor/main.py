@@ -129,6 +129,8 @@ async def _setup_local_monitor():
             monitor.api_key = api_key
             monitor.last_seen = datetime.utcnow()
             logger.info(f"Updated local monitor '{monitor.name}' at ({lat}, {lon}) [{method}]")
+            logger.info(f"🔑 Monitor API Key: {api_key}")
+            logger.info(f"   Use this key to register secondary monitors")
         else:
             # Create new local monitor
             monitor = Monitor(
@@ -142,6 +144,8 @@ async def _setup_local_monitor():
             )
             db.add(monitor)
             logger.info(f"Registered local monitor '{settings.monitor_name}' at ({lat}, {lon}) [{method}]")
+            logger.info(f"🔑 Monitor API Key: {api_key}")
+            logger.info(f"   Use this key to register secondary monitors")
 
 
 async def _check_interface_safety() -> bool:
