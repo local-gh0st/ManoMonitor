@@ -477,5 +477,104 @@ def monitor_register(
     asyncio.run(_register())
 
 
+@app.command()
+def analyze_randomization():
+    """Analyze all devices for MAC randomization and group related MACs."""
+
+    async def _analyze():
+        from manomonitor.database.connection import get_session_maker
+        from manomonitor.database.models import Asset, DeviceGroup
+        from manomonitor.utils.mac_fingerprinting import group_randomized_macs, is_randomized_mac
+        from sqlalchemy import select
+
+        console.print("[bold]Analyzing devices for MAC randomization...[/bold]\n")
+
+        async_session = get_session_maker()
+        async with async_session() as db:
+            # Get all assets
+            result = await db.execute(select(Asset))
+            assets = result.scalars().all()
+
+            randomized_count = 0
+            grouped_count = 0
+
+            for asset in assets:
+                # Check if randomized
+                if is_randomized_mac(asset.mac_address):
+                    randomized_count += 1
+                    console.print(f"[yellow]•[/yellow] {asset.mac_address} - Randomized MAC detected")
+
+                    # Try to group it
+                    group = await group_randomized_macs(db, asset, auto_create_group=True)
+                    if group:
+                        grouped_count += 1
+                        console.print(f"  → Grouped into: {group.name or f'Group-{group.id}'} (confidence: {group.confidence_score:.0%})")
+
+            await db.commit()
+
+            console.print(f"\n[bold]Summary:[/bold]")
+            console.print(f"  Total devices: {len(assets)}")
+            console.print(f"  Randomized MACs: {randomized_count}")
+            console.print(f"  Grouped devices: {grouped_count}")
+
+            # Show device groups
+            result = await db.execute(select(DeviceGroup))
+            groups = result.scalars().all()
+
+            if groups:
+                console.print(f"\n[bold]Device Groups:[/bold]")
+                for group in groups:
+                    mac_count = len(group.assets) if group.assets else 0
+                    console.print(
+                        f"  Group {group.id}: {group.name or '(unnamed)'} - "
+                        f"{mac_count} MACs, confidence {group.confidence_score:.0%}"
+                    )
+
+    asyncio.run(_analyze())
+
+
+@app.command()
+def list_device_groups():
+    """List all device groups and their associated MACs."""
+
+    async def _list():
+        from manomonitor.database.connection import get_session_maker
+        from manomonitor.database.models import DeviceGroup
+        from sqlalchemy import select
+        from rich.table import Table
+
+        async_session = get_session_maker()
+        async with async_session() as db:
+            result = await db.execute(select(DeviceGroup))
+            groups = result.scalars().all()
+
+            if not groups:
+                console.print("[yellow]No device groups found.[/yellow]")
+                console.print("Run 'manomonitor analyze-randomization' to create groups.")
+                return
+
+            for group in groups:
+                table = Table(title=f"Device Group {group.id}: {group.name or '(unnamed)'}")
+                table.add_column("MAC Address", style="cyan")
+                table.add_column("Vendor", style="green")
+                table.add_column("Device Type", style="yellow")
+                table.add_column("Last Seen", style="magenta")
+
+                for asset in group.assets:
+                    table.add_row(
+                        asset.mac_address,
+                        asset.vendor or "Unknown",
+                        asset.device_type or "Unknown",
+                        asset.last_seen.strftime("%Y-%m-%d %H:%M:%S") if asset.last_seen else "Never"
+                    )
+
+                console.print(table)
+                console.print(f"Confidence Score: {group.confidence_score:.0%}")
+                console.print(f"Total MACs: {len(group.assets)}")
+                console.print(f"Times Seen: {group.times_seen}\n")
+
+    asyncio.run(_list())
+
+
 if __name__ == "__main__":
     app()

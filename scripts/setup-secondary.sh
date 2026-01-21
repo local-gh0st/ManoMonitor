@@ -3,10 +3,50 @@
 
 set -e
 
-echo "======================================"
-echo "ManoMonitor Secondary Monitor Setup"
-echo "   (Automatic Configuration)"
-echo "======================================"
+# Parse command-line arguments
+FORCE_MODE=false
+SKIP_SAFETY=false
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --force)
+            FORCE_MODE=true
+            SKIP_SAFETY=true
+            shift
+            ;;
+        --skip-safety-check)
+            SKIP_SAFETY=true
+            shift
+            ;;
+        --help|-h)
+            echo "Usage: $0 [OPTIONS]"
+            echo ""
+            echo "Options:"
+            echo "  --force              Skip all safety checks (use with caution!)"
+            echo "  --skip-safety-check  Skip interface safety check only"
+            echo "  --help, -h           Show this help message"
+            echo ""
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Use --help for usage information"
+            exit 1
+            ;;
+    esac
+done
+
+if [ "$FORCE_MODE" = true ]; then
+    echo "======================================"
+    echo "ManoMonitor Secondary Monitor Setup"
+    echo "   ⚠️  FORCE MODE - Safety Disabled ⚠️"
+    echo "======================================"
+else
+    echo "======================================"
+    echo "ManoMonitor Secondary Monitor Setup"
+    echo "   (Automatic Configuration)"
+    echo "======================================"
+fi
 echo
 
 # Determine script directory
@@ -16,14 +56,8 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 # Auto-detect WiFi interface
 echo "🔍 Auto-detecting WiFi interface..."
 
-# Use the safety checker to find a safe interface
-SAFE_INTERFACE=$(python3 "$SCRIPT_DIR/check_wifi_safety.py" --suggest 2>/dev/null || echo "")
-
-if [ -n "$SAFE_INTERFACE" ]; then
-    echo "✓ Found safe WiFi interface: $SAFE_INTERFACE"
-    WIFI_INTERFACE="$SAFE_INTERFACE"
-else
-    # Fallback to manual detection
+if [ "$SKIP_SAFETY" = true ]; then
+    # Skip safety check, just find any interface
     WIFI_INTERFACE=$(iw dev 2>/dev/null | grep Interface | head -1 | awk '{print $2}')
 
     if [ -z "$WIFI_INTERFACE" ]; then
@@ -34,43 +68,85 @@ else
             exit 1
         fi
     else
-        echo "⚠️  Found interface: $WIFI_INTERFACE (safety unknown)"
+        echo "✓ Found WiFi interface: $WIFI_INTERFACE (safety check skipped)"
+    fi
+else
+    # Use the safety checker to find a safe interface
+    echo "   Scanning for safe interfaces..."
+    SAFE_INTERFACE=$(python3 "$SCRIPT_DIR/check_wifi_safety.py" --suggest 2>&1 | grep -E '^wlan[0-9]+$' | head -1 || echo "")
+
+    if [ -n "$SAFE_INTERFACE" ]; then
+        echo "✓ Found safe WiFi interface: $SAFE_INTERFACE"
+        WIFI_INTERFACE="$SAFE_INTERFACE"
+        echo "   (Interface is not connected - perfect for monitor mode!)"
+    else
+        echo "⚠️  Could not auto-detect a safe interface"
+        echo ""
+        echo "Available interfaces:"
+        python3 "$SCRIPT_DIR/check_wifi_safety.py" --list 2>/dev/null || true
+        echo ""
+        echo "💡 TIP: An interface that is 'Not connected' is SAFE and IDEAL for monitor mode!"
+        echo ""
+        echo "Options:"
+        echo "  1. Enter interface name manually (choose one marked SAFE above)"
+        echo "  2. Run with --force flag to bypass safety checks"
+        echo "  3. Cancel and connect via Ethernet or add USB WiFi adapter"
+        echo ""
+        read -p "Enter WiFi interface to use (or press Ctrl+C to cancel): " WIFI_INTERFACE
+        if [ -z "$WIFI_INTERFACE" ]; then
+            echo "❌ WiFi interface required"
+            exit 1
+        fi
+        echo "✓ Will use interface: $WIFI_INTERFACE"
     fi
 fi
 
-# Check if the selected interface is safe
-echo ""
-echo "🔒 Checking interface safety..."
-python3 "$SCRIPT_DIR/check_wifi_safety.py" "$WIFI_INTERFACE" 2>&1
-SAFETY_CODE=$?
+# Check if the selected interface is safe (unless skipped)
+if [ "$SKIP_SAFETY" = false ]; then
+    echo ""
+    echo "🔒 Verifying interface $WIFI_INTERFACE safety..."
 
-if [ $SAFETY_CODE -eq 1 ]; then
-    echo ""
-    echo "❌ ERROR: Interface $WIFI_INTERFACE is NOT SAFE to use!"
-    echo "This is your only network connection. Using it will disconnect you."
-    echo ""
-    echo "Solutions:"
-    echo "  1. Use a USB WiFi adapter for monitoring"
-    echo "  2. Connect via Ethernet cable first"
-    echo "  3. Use a different WiFi interface"
-    echo ""
-    read -p "Do you want to continue anyway? (type 'YES' to confirm): " FORCE_CONFIRM
-    if [ "$FORCE_CONFIRM" != "YES" ]; then
-        echo "Setup cancelled for safety"
-        exit 1
+    # Capture output for parsing
+    SAFETY_OUTPUT=$(python3 "$SCRIPT_DIR/check_wifi_safety.py" "$WIFI_INTERFACE" 2>&1)
+    SAFETY_CODE=$?
+
+    # Show relevant output
+    echo "$SAFETY_OUTPUT" | grep -E "(✓|⚠️|⛔|Safe|WARNING|DANGER)" || echo "   Checking..."
+
+    if [ $SAFETY_CODE -eq 1 ]; then
+        echo ""
+        echo "❌ ERROR: Interface $WIFI_INTERFACE is NOT SAFE to use!"
+        echo "This is your only network connection. Using it will disconnect you."
+        echo ""
+        echo "Solutions:"
+        echo "  1. Use a USB WiFi adapter for monitoring"
+        echo "  2. Connect via Ethernet cable first"
+        echo "  3. Use a different WiFi interface"
+        echo "  4. Run with --force flag to skip this check"
+        echo ""
+        read -p "Do you want to continue anyway? (type 'YES' to confirm): " FORCE_CONFIRM
+        if [ "$FORCE_CONFIRM" != "YES" ]; then
+            echo "Setup cancelled for safety"
+            echo ""
+            echo "To skip safety checks, run:"
+            echo "  ./scripts/setup-secondary.sh --force"
+            exit 1
+        fi
+        echo "⚠️  Proceeding at your own risk..."
+    elif [ $SAFETY_CODE -eq 2 ]; then
+        echo ""
+        echo "⚠️  WARNING: Interface $WIFI_INTERFACE is currently connected"
+        read -p "Continue? You may lose connectivity. (y/n): " CONTINUE_WARNED
+        if [ "$CONTINUE_WARNED" != "y" ]; then
+            echo "Setup cancelled"
+            exit 1
+        fi
     fi
-    echo "⚠️  Proceeding at your own risk..."
-elif [ $SAFETY_CODE -eq 2 ]; then
-    echo ""
-    echo "⚠️  WARNING: Interface $WIFI_INTERFACE is currently connected"
-    read -p "Continue? You may lose connectivity. (y/n): " CONTINUE_WARNED
-    if [ "$CONTINUE_WARNED" != "y" ]; then
-        echo "Setup cancelled"
-        exit 1
-    fi
+
+    echo "✓ Interface $WIFI_INTERFACE passed safety check"
+else
+    echo "⚠️  Safety checks DISABLED - proceeding without validation"
 fi
-
-echo "✓ Interface safety check passed"
 
 # Use hostname as default monitor name
 DEFAULT_NAME=$(hostname)
@@ -200,7 +276,7 @@ echo "🔑 Step 3: Registering with primary and retrieving API key..."
 
 # The reporter script will auto-fetch the API key, but we can also save it now
 source venv/bin/activate
-API_KEY=$(curl -sf "$PRIMARY_URL/api/monitors" | grep -o '"api_key":"[^"]*"' | head -1 | cut -d'"' -f4 || echo "")
+API_KEY=$(curl -sf "$PRIMARY_URL/api/monitors/local-api-key" | python3 -c "import sys, json; print(json.load(sys.stdin).get('api_key', ''))" 2>/dev/null || echo "")
 
 if [ -n "$API_KEY" ]; then
     echo "✓ Retrieved API key: ${API_KEY:0:16}..."

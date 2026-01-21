@@ -119,14 +119,12 @@ async def get_primary_api_key(primary_url: str) -> Optional[str]:
     """Fetch API key from primary monitor."""
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            response = await client.get(f"{primary_url}/api/monitors")
+            response = await client.get(f"{primary_url}/api/monitors/local-api-key")
             response.raise_for_status()
-            monitors = response.json()
+            data = response.json()
 
-            # Find local/primary monitor
-            primary = next((m for m in monitors if m.get("is_local")), None)
-            if primary and primary.get("api_key"):
-                return primary["api_key"]
+            if data and data.get("api_key"):
+                return data["api_key"]
     except Exception as e:
         logger.debug(f"Failed to get API key: {e}")
     return None

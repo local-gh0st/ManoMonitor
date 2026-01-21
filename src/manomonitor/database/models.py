@@ -32,6 +32,12 @@ class Asset(Base):
     vendor_country: Mapped[Optional[str]] = mapped_column(String(2), nullable=True)  # ISO country code
     is_virtual_machine: Mapped[bool] = mapped_column(Boolean, default=False)
 
+    # MAC randomization detection
+    is_randomized_mac: Mapped[bool] = mapped_column(Boolean, default=False)
+    device_group_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("device_groups.id"), nullable=True
+    )
+
     # Notification settings
     notify_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     signal_threshold: Mapped[int] = mapped_column(Integer, default=-65)
@@ -72,6 +78,9 @@ class Asset(Base):
     )
     signal_readings: Mapped[list["SignalReading"]] = relationship(
         "SignalReading", back_populates="asset", cascade="all, delete-orphan"
+    )
+    device_group: Mapped[Optional["DeviceGroup"]] = relationship(
+        "DeviceGroup", back_populates="assets"
     )
 
     def __repr__(self) -> str:
@@ -328,3 +337,43 @@ class SignalReading(Base):
 
     def __repr__(self) -> str:
         return f"<SignalReading {self.asset_id} from {self.monitor_id}: {self.signal_strength}dBm>"
+
+
+class DeviceGroup(Base):
+    """
+    Groups multiple MAC addresses that likely belong to the same physical device.
+
+    Used to track devices that use MAC address randomization. Multiple randomized
+    MACs can be fingerprinted and grouped together as the same device.
+    """
+
+    __tablename__ = "device_groups"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+
+    # User-assigned name for this device group
+    name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+
+    # The "primary" or most recently seen MAC (for display purposes)
+    primary_mac: Mapped[Optional[str]] = mapped_column(String(17), nullable=True)
+
+    # Confidence that MACs in this group belong to same device (0.0-1.0)
+    confidence_score: Mapped[float] = mapped_column(Float, default=0.0)
+
+    # Fingerprint characteristics (JSON-serialized)
+    # Stores: signal_pattern, probe_timing, capabilities, etc.
+    fingerprint_data: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # Tracking
+    first_seen: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+    last_seen: Mapped[datetime] = mapped_column(DateTime, default=func.now(), onupdate=func.now())
+    times_seen: Mapped[int] = mapped_column(Integer, default=1)
+
+    # Relationships
+    assets: Mapped[list["Asset"]] = relationship(
+        "Asset", back_populates="device_group"
+    )
+
+    def __repr__(self) -> str:
+        name = self.name or f"Group-{self.id}"
+        return f"<DeviceGroup {name} ({len(self.assets)} MACs)>"
