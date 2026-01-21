@@ -156,6 +156,10 @@ class Settings(BaseSettings):
         default="",
         description="API key for this monitor (auto-generated if empty). Used for multi-monitor sync.",
     )
+    api_key: str = Field(
+        default="",
+        description="API key for authenticating with primary monitor (secondary monitors only).",
+    )
     primary_url: str = Field(
         default="",
         description="URL of the primary monitor (for secondary monitors only, e.g., http://192.168.1.100:8080)",
